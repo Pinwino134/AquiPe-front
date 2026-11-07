@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -12,6 +12,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Publicacion } from '@/lib/api';
+import { getUsuario } from '@/lib/session';
+import {
+  distanciaTexto,
+  mostrarError,
+  obtenerUbicacion,
+} from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -24,7 +32,7 @@ const C = {
 };
 
 type Coincidencia = {
-  id: number;
+  id: string;
   solicitud: string;
   categoria: string;
   persona: string;
@@ -32,77 +40,61 @@ type Coincidencia = {
   descripcion: string;
   zona: string;
   distancia: string;
+  solicitudId: string;
   icono: keyof typeof Ionicons.glyphMap;
   inicial: string;
 };
 
-const coincidenciasIniciales: Coincidencia[] = [
-  {
-    id: 1,
-    solicitud: 'Préstamo de escalera',
-    categoria: 'Herramienta',
-    persona: 'Carlos R.',
-    ofrecimiento: 'Carlos ofrece una escalera',
-    descripcion:
-      'Carlos tiene una escalera de aluminio disponible para prestar a vecinos que la necesiten.',
-    zona: 'Cerca de tu barrio',
-    distancia: '3 cuadras',
-    icono: 'construct-outline',
-    inicial: 'C',
-  },
-  {
-    id: 2,
-    solicitud: 'Apoyo con matemáticas',
-    categoria: 'Apoyo',
-    persona: 'Andrea P.',
-    ofrecimiento: 'Andrea brinda apoyo escolar',
-    descripcion:
-      'Andrea puede ayudar con ejercicios de matemáticas y tareas escolares.',
-    zona: 'Cerca de tu barrio',
-    distancia: '2 cuadras',
-    icono: 'book-outline',
-    inicial: 'A',
-  },
-  {
-    id: 3,
-    solicitud: 'Reparación de computadora',
-    categoria: 'Apoyo',
-    persona: 'Miguel T.',
-    ofrecimiento: 'Miguel ofrece soporte técnico',
-    descripcion:
-      'Miguel brinda ayuda con mantenimiento y revisión de computadoras.',
-    zona: 'Cerca de tu barrio',
-    distancia: '4 cuadras',
-    icono: 'laptop-outline',
-    inicial: 'M',
-  },
-  {
-    id: 4,
-    solicitud: 'Donación de libros',
-    categoria: 'Donación',
-    persona: 'Lucía G.',
-    ofrecimiento: 'Lucía tiene libros disponibles',
-    descripcion:
-      'Lucía ofrece libros escolares que pueden ser útiles para estudiantes.',
-    zona: 'Cerca de tu barrio',
-    distancia: '5 cuadras',
-    icono: 'library-outline',
-    inicial: 'L',
-  },
-];
+type Filtro = string;
 
-type Filtro = 'Todas' | 'Herramienta' | 'Apoyo' | 'Donación';
+// Coincidencias descartadas durante la sesión (solo local).
+const descartadasIds = new Set<string>();
 
-const filtros: Filtro[] = [
-  'Todas',
-  'Herramienta',
-  'Apoyo',
-  'Donación',
-];
+/**
+ * Una "coincidencia" es una oferta de otro vecino (mismo tipo y misma categoría)
+ * para algo que yo tengo pedido y sigue abierto.
+ */
+function calcularCoincidencias(
+  mias: Publicacion[],
+  ofertas: Publicacion[]
+): Coincidencia[] {
+  const yo = getUsuario()?.id;
+  const vistas = new Set<string>();
+  const resultado: Coincidencia[] = [];
+
+  for (const pedido of mias) {
+    if (pedido.categoria == null) continue;
+
+    for (const oferta of ofertas) {
+      if (oferta.autor.id === yo || vistas.has(oferta.id)) continue;
+      if (oferta.tipo !== pedido.tipo) continue;
+      if (oferta.categoria?.id !== pedido.categoria.id) continue;
+
+      vistas.add(oferta.id);
+
+      const icono = `${oferta.categoria?.icono ?? 'grid'}-outline`;
+      resultado.push({
+        id: oferta.id,
+        solicitudId: pedido.id,
+        solicitud: pedido.titulo,
+        categoria: oferta.categoria?.nombre ?? 'Otro',
+        persona: oferta.autor.nombre_completo,
+        ofrecimiento: oferta.titulo,
+        descripcion: oferta.descripcion,
+        zona: oferta.zona?.nombre ?? 'Cerca de tu barrio',
+        distancia: distanciaTexto(oferta.distancia_km),
+        icono: icono as keyof typeof Ionicons.glyphMap,
+        inicial: oferta.autor.nombre_completo.charAt(0).toUpperCase(),
+      });
+    }
+  }
+
+  return resultado;
+}
 
 export default function Coincidencias() {
   const [coincidencias, setCoincidencias] =
-    useState<Coincidencia[]>(coincidenciasIniciales);
+    useState<Coincidencia[]>([]);
 
   const [descartadas, setDescartadas] =
     useState<Coincidencia[]>([]);
@@ -114,6 +106,51 @@ export default function Coincidencias() {
 
   const [mostrarDescartadas, setMostrarDescartadas] =
     useState(false);
+
+  const cargar = useCallback(async () => {
+    try {
+      const pos = await obtenerUbicacion();
+
+      const [mias, ofertas] = await Promise.all([
+        Api.misPublicaciones(),
+        Api.publicaciones({
+          direccion: 'OFRECE',
+          lat: pos.latitude,
+          lng: pos.longitude,
+        }),
+      ]);
+
+      const abiertas = mias.filter(
+        (p) =>
+          p.estado === 'ABIERTA' &&
+          p.direccion === 'SOLICITA' &&
+          (p.tipo === 'SERVICIO' || p.tipo === 'FAVOR')
+      );
+
+      setCoincidencias(
+        calcularCoincidencias(abiertas, ofertas).filter(
+          (c) => !descartadasIds.has(c.id)
+        )
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudieron cargar las coincidencias');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargar();
+    }, [cargar])
+  );
+
+  const filtros = useMemo(
+    () => [
+      'Todas',
+      ...new Set([...coincidencias, ...descartadas].map((c) => c.categoria)),
+    ],
+    [coincidencias, descartadas]
+  );
 
   const filtradas = useMemo(() => {
     const lista = mostrarDescartadas
@@ -144,6 +181,8 @@ export default function Coincidencias() {
         {
           text: 'Descartar',
           onPress: () => {
+            descartadasIds.add(item.id);
+
             setCoincidencias((prev) =>
               prev.filter((c) => c.id !== item.id)
             );
@@ -161,6 +200,8 @@ export default function Coincidencias() {
   };
 
   const recuperar = (item: Coincidencia) => {
+    descartadasIds.delete(item.id);
+
     setDescartadas((prev) =>
       prev.filter((c) => c.id !== item.id)
     );
@@ -176,19 +217,28 @@ export default function Coincidencias() {
     );
   };
 
-  const solicitarContacto = () => {
+  const solicitarContacto = async () => {
     if (!seleccionada) {
       return;
     }
 
-    const persona = seleccionada.persona;
+    const elegida = seleccionada;
 
-    setSeleccionada(null);
+    try {
+      await Api.responder(
+        elegida.id,
+        `Hola, vi tu publicación "${elegida.ofrecimiento}" y me interesa. Es para mi solicitud: ${elegida.solicitud}.`.slice(0, 500)
+      );
 
-    Alert.alert(
-      'Solicitud de contacto',
-      `Se registró una solicitud de contacto de demostración para ${persona}. No se ha enviado ninguna notificación real.`
-    );
+      setSeleccionada(null);
+
+      Alert.alert(
+        'Solicitud enviada',
+        `${elegida.persona} recibirá tu mensaje y podrá aceptarlo.`
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo enviar la solicitud');
+    }
   };
 
   return (
@@ -494,9 +544,9 @@ export default function Coincidencias() {
         )}
 
         <Text style={s.nota}>
-          Las coincidencias y distancias mostradas son
-          ejemplos para demostrar el funcionamiento
-          de MatchVecinal.
+          Las coincidencias se calculan con tus solicitudes
+          abiertas y las ofertas de tus vecinos.
+          Publica una solicitud para ver más.
         </Text>
       </ScrollView>
 
@@ -612,8 +662,8 @@ export default function Coincidencias() {
                 </Pressable>
 
                 <Text style={s.modalNota}>
-                  La solicitud de contacto es demostrativa.
-                  No se enviarán mensajes reales.
+                  Se enviará tu mensaje al vecino.
+                  Él decidirá si lo acepta.
                 </Text>
               </ScrollView>
             )}

@@ -1,8 +1,8 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -19,6 +19,14 @@ import {
 import type { Region } from 'react-native-maps';
 import MapView, { Marker } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Publicacion } from '@/lib/api';
+import { useUsuario } from '@/lib/session';
+import {
+  COLOR_TIPO,
+  obtenerUbicacion,
+  textoPrecio,
+} from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -86,75 +94,28 @@ const tabs = [
   },
 ] as const;
 
-const publicacionesUsuario = [
-  {
-    id: '1',
-    titulo: 'Reparación de computadoras',
-    categoria: 'Tecnología',
-    descripcion: 'Mantenimiento y reparación de laptops y PC',
-    precio: 'S/ 45',
-    icono: 'laptop-outline',
-    color: '#168BE0',
-  },
-  {
-    id: '2',
-    titulo: 'Clases de matemáticas',
-    categoria: 'Educación',
-    descripcion: 'Clases particulares a domicilio o virtuales',
-    precio: 'S/ 30/h',
-    icono: 'book-outline',
-    color: '#18B69A',
-  },
-  {
-    id: '3',
-    titulo: 'Instalación de cámaras',
-    categoria: 'Seguridad',
-    descripcion: 'Instalación y configuración de cámaras',
-    precio: 'S/ 80',
-    icono: 'videocam-outline',
-    color: '#F28B30',
-  },
-  {
-    id: '4',
-    titulo: 'Diseño de páginas web',
-    categoria: 'Tecnología',
-    descripcion: 'Creación de páginas web para negocios',
-    precio: 'S/ 250',
-    icono: 'code-slash-outline',
-    color: '#8B5CF6',
-  },
-] as const;
+type TarjetaPublicacion = {
+  id: string;
+  titulo: string;
+  categoria: string;
+  descripcion: string;
+  precio: string;
+  icono: keyof typeof Ionicons.glyphMap;
+  color: string;
+};
 
-const serviciosEjemplo = [
-  {
-    id: '1',
-    titulo: 'Servicio de electricidad',
-    descripcion: 'Ubicación de demostración',
-    latitud: -16.3975,
-    longitud: -71.5335,
-    color: '#168BE0',
-  },
-  {
-    id: '2',
-    titulo: 'Servicio de limpieza',
-    descripcion: 'Ubicación de demostración',
-    latitud: -16.401,
-    longitud: -71.538,
-    color: '#18B69A',
-  },
-  {
-    id: '3',
-    titulo: 'Servicio de reparaciones',
-    descripcion: 'Ubicación de demostración',
-    latitud: -16.3955,
-    longitud: -71.54,
-    color: '#F28B30',
-  },
-];
+const aTarjeta = (p: Publicacion): TarjetaPublicacion => ({
+  id: p.id,
+  titulo: p.titulo,
+  categoria: p.categoria?.nombre ?? p.tipo,
+  descripcion: p.descripcion,
+  precio: p.servicio ? textoPrecio(p) : p.direccion === 'OFRECE' ? 'Ofrezco' : 'Necesito',
+  icono: `${p.categoria?.icono ?? 'grid'}-outline` as keyof typeof Ionicons.glyphMap,
+  color: COLOR_TIPO[p.tipo],
+});
 
 export default function Inicio() {
-  const { nombre } =
-    useLocalSearchParams<{ nombre?: string }>();
+  const usuario = useUsuario();
 
   const mapaRef = useRef<MapView>(null);
 
@@ -173,9 +134,53 @@ export default function Inicio() {
     useState(0);
 
   const nombreUsuario =
-    typeof nombre === 'string' && nombre.trim()
-      ? nombre.trim()
-      : 'visitante';
+    usuario?.nombre_completo.trim().split(' ')[0] ||
+    'visitante';
+
+  const [publicacionesUsuario, setPublicacionesUsuario] =
+    useState<TarjetaPublicacion[]>([]);
+
+  const [serviciosCercanos, setServiciosCercanos] =
+    useState<Publicacion[]>([]);
+
+  // Se recarga cada vez que la pantalla vuelve a estar en foco
+  // (por ejemplo, después de publicar algo nuevo).
+  useFocusEffect(
+    useCallback(() => {
+      let activo = true;
+
+      (async () => {
+        try {
+          const mias = await Api.misPublicaciones();
+          if (activo) {
+            setPublicacionesUsuario(mias.map(aTarjeta));
+            setPublicacionActual(0);
+          }
+        } catch {
+          /* se mantiene la lista anterior */
+        }
+
+        try {
+          const pos = await obtenerUbicacion();
+          const cerca = await Api.publicaciones({
+            tipo: 'SERVICIO',
+            direccion: 'OFRECE',
+            lat: pos.latitude,
+            lng: pos.longitude,
+            radio_km: 15,
+            limit: 30,
+          });
+          if (activo) setServiciosCercanos(cerca);
+        } catch {
+          /* sin conexión: el mapa queda sin marcadores */
+        }
+      })();
+
+      return () => {
+        activo = false;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     let activo = true;
@@ -402,6 +407,12 @@ export default function Inicio() {
             value={busqueda}
             onChangeText={setBusqueda}
             returnKeyType="search"
+            onSubmitEditing={() =>
+              router.push({
+                pathname: '/servicios',
+                params: { q: busqueda.trim() },
+              })
+            }
             autoCorrect={false}
             accessibilityLabel="Buscar servicios"
           />
@@ -468,6 +479,12 @@ export default function Inicio() {
             {publicacionesUsuario.length} publicaciones
           </Text>
         </View>
+
+        {publicacionesUsuario.length === 0 && (
+          <Text style={s.mapInfoText}>
+            Aún no tienes publicaciones. Usa «Publicar» para crear la primera.
+          </Text>
+        )}
 
         <FlatList
           data={publicacionesUsuario}
@@ -638,24 +655,28 @@ export default function Inicio() {
               rotateEnabled={false}
               pitchEnabled={false}
             >
-              {serviciosEjemplo.map(
-                (servicio) => (
+              {serviciosCercanos
+                .filter(
+                  (servicio) =>
+                    servicio.latitud != null &&
+                    servicio.longitud != null
+                )
+                .map((servicio) => (
                   <Marker
                     key={servicio.id}
                     coordinate={{
                       latitude:
-                        servicio.latitud,
+                        servicio.latitud as number,
                       longitude:
-                        servicio.longitud,
+                        servicio.longitud as number,
                     }}
                     title={servicio.titulo}
                     description={
-                      servicio.descripcion
+                      servicio.autor.nombre_completo
                     }
-                    pinColor={servicio.color}
+                    pinColor={COLOR_TIPO.SERVICIO}
                   />
-                )
-              )}
+                ))}
             </MapView>
           </View>
 
@@ -667,7 +688,9 @@ export default function Inicio() {
             />
 
             <Text style={s.mapInfoText}>
-              Marcadores de demostración
+              {serviciosCercanos.length === 0
+                ? 'No hay servicios publicados cerca todavía'
+                : `${serviciosCercanos.length} servicios publicados cerca de ti`}
             </Text>
           </View>
 

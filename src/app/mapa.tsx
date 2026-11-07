@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,6 +20,14 @@ import MapView, {
 } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Api, type Publicacion } from '@/lib/api';
+import { useUsuario } from '@/lib/session';
+import {
+  emojiCategoria,
+  mostrarError,
+  obtenerUbicacion,
+} from '@/lib/ui';
+
 const C = {
   principal: '#146C67',
   fondo: '#F6F7F3',
@@ -34,7 +42,7 @@ type Tipo = 'Servicios' | 'Favores' | 'Recursos';
 type Accion = 'solicitar' | 'ayudar';
 
 type Punto = {
-  id: number;
+  id: string;
   tipo: Tipo;
   nombre: string;
   persona: string;
@@ -45,91 +53,32 @@ type Punto = {
   accion?: Accion;
 };
 
-const puntos: Punto[] = [
-  {
-    id: 1,
-    tipo: 'Servicios',
-    nombre: 'Electricista cercano',
-    persona: 'Carlos R.',
-    descripcion:
-      'Instalaciones eléctricas, reparaciones y mantenimiento.',
-    icono: '⚡',
-    latitud: -16.3988,
-    longitud: -71.5369,
-    accion: 'solicitar',
-  },
-  {
-    id: 2,
-    tipo: 'Servicios',
-    nombre: 'Soporte técnico',
-    persona: 'Miguel T.',
-    descripcion:
-      'Reparación y mantenimiento de computadoras.',
-    icono: '💻',
-    latitud: -16.4015,
-    longitud: -71.5295,
-    accion: 'solicitar',
-  },
-  {
-    id: 3,
-    tipo: 'Servicios',
-    nombre: 'Gasfitero',
-    persona: 'Luis M.',
-    descripcion:
-      'Reparación de tuberías y mantenimiento.',
-    icono: '🔧',
-    latitud: -16.395,
-    longitud: -71.541,
-    accion: 'solicitar',
-  },
-  {
-    id: 4,
-    tipo: 'Favores',
-    nombre: 'Préstamo de escalera',
-    persona: 'María',
-    descripcion:
-      'Necesito una escalera para realizar una reparación en casa.',
-    icono: '🪜',
-    latitud: -16.3948,
-    longitud: -71.532,
-    accion: 'ayudar',
-  },
-  {
-    id: 5,
-    tipo: 'Favores',
-    nombre: 'Apoyo en tareas',
-    persona: 'José',
-    descripcion:
-      'Busco ayuda para resolver tareas escolares.',
-    icono: '📚',
-    latitud: -16.405,
-    longitud: -71.538,
-    accion: 'ayudar',
-  },
-  {
-    id: 6,
-    tipo: 'Favores',
-    nombre: 'Clases de matemáticas',
-    persona: 'Andrea',
-    descripcion:
-      'Ofrezco apoyo con ejercicios de matemáticas.',
-    icono: '📖',
-    latitud: -16.403,
-    longitud: -71.525,
-    accion: 'solicitar',
-  },
-  {
-    id: 7,
-    tipo: 'Recursos',
-    nombre: 'Punto de apoyo comunitario',
-    persona: 'Comunidad AquiPe',
-    descripcion:
-      'Espacio comunitario de referencia para recibir orientación.',
-    icono: '📍',
-    latitud: -16.409,
-    longitud: -71.533,
-  },
-];
+const aPunto = (p: Publicacion): Punto | null => {
+  if (p.latitud == null || p.longitud == null) return null;
+
+  const tipo: Tipo =
+    p.tipo === 'SERVICIO'
+      ? 'Servicios'
+      : p.tipo === 'FAVOR'
+      ? 'Favores'
+      : 'Recursos';
+
+  // Quien pide algo -> yo puedo "ayudar". Quien ofrece algo -> yo puedo "solicitar".
+  const accion: Accion =
+    p.direccion === 'SOLICITA' ? 'ayudar' : 'solicitar';
+
+  return {
+    id: p.id,
+    tipo,
+    nombre: p.titulo,
+    persona: p.autor.nombre_completo,
+    descripcion: p.descripcion,
+    icono: emojiCategoria(p.categoria?.nombre),
+    latitud: p.latitud,
+    longitud: p.longitud,
+    accion,
+  };
+};
 
 const tipos: Tipo[] = [
   'Servicios',
@@ -164,6 +113,47 @@ export default function Mapa() {
   const [telefono, setTelefono] = useState('');
   const [mensaje, setMensaje] = useState('');
 
+  const usuario = useUsuario();
+  const [puntos, setPuntos] = useState<Punto[]>([]);
+  const [enviando, setEnviando] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let activo = true;
+
+      (async () => {
+        try {
+          const lista = await Api.publicaciones({ limit: 100 });
+          if (!activo) return;
+
+          setPuntos(
+            lista
+              .map(aPunto)
+              .filter((x): x is Punto => x !== null)
+          );
+        } catch (e) {
+          if (activo) mostrarError(e, 'No se pudo cargar el mapa');
+        }
+
+        // Centra el mapa en el usuario (la primera vez).
+        const pos = await obtenerUbicacion();
+        if (!activo) return;
+
+        const region: Region = {
+          ...pos,
+          latitudeDelta: 0.025,
+          longitudeDelta: 0.025,
+        };
+        regionRef.current = region;
+        mapaRef.current?.animateToRegion(region, 500);
+      })();
+
+      return () => {
+        activo = false;
+      };
+    }, [])
+  );
+
   const alternar = (tipo: Tipo) => {
     setActivos((anteriores) =>
       anteriores.includes(tipo)
@@ -196,6 +186,10 @@ export default function Mapa() {
   const abrirFormulario = () => {
     setDetalleVisible(false);
 
+    // Los datos de contacto se rellenan con los de la sesión.
+    setNombre(usuario?.nombre_completo ?? '');
+    setTelefono(usuario?.telefono ?? '');
+
     // Se abre el formulario después de cerrar
     // el modal de información.
     setTimeout(() => {
@@ -210,7 +204,7 @@ export default function Mapa() {
     setMensaje('');
   };
 
-  const enviarSolicitud = () => {
+  const enviarSolicitud = async () => {
     if (
       !nombre.trim() ||
       !telefono.trim() ||
@@ -223,18 +217,31 @@ export default function Mapa() {
       return;
     }
 
-    if (!seleccionado) {
+    if (!seleccionado || enviando) {
       return;
     }
 
     const titulo = seleccionado.nombre;
+    setEnviando(true);
 
-    cerrarFormulario();
+    try {
+      await Api.responder(
+        seleccionado.id,
+        `${mensaje.trim()}\n\nContacto: ${nombre.trim()} · ${telefono.trim()}`.slice(0, 500)
+      );
 
-    Alert.alert(
-      'Solicitud registrada',
-      `Tu solicitud relacionada con "${titulo}" se registró correctamente en esta demostración.`
-    );
+      cerrarFormulario();
+
+      Alert.alert(
+        'Solicitud enviada',
+        `Tu mensaje sobre "${titulo}" fue enviado. El autor decidirá si lo acepta.`
+      );
+    } catch (e) {
+      // Ej.: "No puedes responder a tu propia publicación" o "Ya respondiste".
+      mostrarError(e, 'No se pudo enviar');
+    } finally {
+      setEnviando(false);
+    }
   };
 
   const cambiarZoom = (factor: number) => {
@@ -634,8 +641,8 @@ export default function Mapa() {
               />
 
               <Text style={s.avisoFormulario}>
-                Esta solicitud es de demostración.
-                No se enviarán mensajes reales.
+                Tu mensaje y tus datos de contacto se
+                enviarán al autor de la publicación.
               </Text>
 
               <Pressable

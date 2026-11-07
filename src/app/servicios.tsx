@@ -1,8 +1,9 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Pressable,
@@ -14,6 +15,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Api, type Publicacion } from '@/lib/api';
+import {
+  distanciaTexto,
+  emojiCategoria,
+  mostrarError,
+  obtenerUbicacion,
+} from '@/lib/ui';
+
 const C = {
   principal: '#146C67',
   fondo: '#F6F7F3',
@@ -24,75 +33,76 @@ const C = {
   borde: '#DFE7E2',
 };
 
-const categorias = [
-  'Todos',
-  'Hogar',
-  'Educación',
-  'Tecnología',
-  'Salud',
-];
+type Servicio = {
+  id: string;
+  nombre: string;
+  profesional: string;
+  autorId: string;
+  categoria: string;
+  calificacion: string;
+  opiniones: number;
+  distancia: string;
+  icono: string;
+};
 
-const servicios = [
-  {
-    id: 1,
-    nombre: 'Electricista',
-    profesional: 'Carlos R.',
-    categoria: 'Hogar',
-    calificacion: '4.8',
-    opiniones: 12,
-    distancia: '3 cuadras',
-    icono: '⚡',
-    telefono: '999111222',
-  },
-  {
-    id: 2,
-    nombre: 'Gasfitero',
-    profesional: 'Luis M.',
-    categoria: 'Hogar',
-    calificacion: '4.6',
-    opiniones: 8,
-    distancia: '5 cuadras',
-    icono: '🔧',
-    telefono: '999222333',
-  },
-  {
-    id: 3,
-    nombre: 'Clases particulares',
-    profesional: 'Andrea P.',
-    categoria: 'Educación',
-    calificacion: '4.9',
-    opiniones: 21,
-    distancia: '2 cuadras',
-    icono: '📚',
-    telefono: '999333444',
-  },
-  {
-    id: 4,
-    nombre: 'Soporte técnico',
-    profesional: 'Miguel T.',
-    categoria: 'Tecnología',
-    calificacion: '4.7',
-    opiniones: 15,
-    distancia: '4 cuadras',
-    icono: '💻',
-    telefono: '999444555',
-  },
-  {
-    id: 5,
-    nombre: 'Enfermería a domicilio',
-    profesional: 'Lucía G.',
-    categoria: 'Salud',
-    calificacion: '4.9',
-    opiniones: 18,
-    distancia: '6 cuadras',
-    icono: '🩺',
-    telefono: '999555666',
-  },
-];
+const aServicio = (p: Publicacion): Servicio => ({
+  id: p.id,
+  nombre: p.titulo,
+  profesional: p.autor.nombre_completo,
+  autorId: p.autor.id,
+  categoria: p.categoria?.nombre ?? 'Otro',
+  calificacion: p.autor.calificacion_promedio.toFixed(1),
+  opiniones: p.autor.total_resenas,
+  distancia:
+    p.distancia_km != null
+      ? distanciaTexto(p.distancia_km)
+      : 'poca distancia',
+  icono: emojiCategoria(p.categoria?.nombre),
+});
 
 export default function Servicios() {
-  const [busqueda, setBusqueda] = useState('');
+  const { q } = useLocalSearchParams<{ q?: string }>();
+
+  const [busqueda, setBusqueda] = useState(
+    typeof q === 'string' ? q : ''
+  );
   const [categoria, setCategoria] = useState('Todos');
+  const [servicios, setServicios] = useState<Servicio[]>([]);
+  const [categorias, setCategorias] = useState<string[]>(['Todos']);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    let activo = true;
+
+    (async () => {
+      try {
+        const pos = await obtenerUbicacion();
+
+        const [lista, cats] = await Promise.all([
+          Api.publicaciones({
+            tipo: 'SERVICIO',
+            direccion: 'OFRECE',
+            lat: pos.latitude,
+            lng: pos.longitude,
+          }),
+          Api.categorias('SERVICIO'),
+        ]);
+
+        if (!activo) return;
+
+        setServicios(lista.map(aServicio));
+        setCategorias(['Todos', ...cats.map((c) => c.nombre)]);
+      } catch (e) {
+        if (activo) mostrarError(e, 'No se pudieron cargar los servicios');
+      } finally {
+        if (activo) setCargando(false);
+      }
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, []);
 
   const filtrados = servicios.filter((servicio) => {
     const coincideCategoria =
@@ -108,15 +118,52 @@ export default function Servicios() {
     );
   });
 
-  const llamar = (telefono: string) => {
+  const solicitarServicio = async (servicio: Servicio) => {
+    try {
+      await Api.responder(
+        servicio.id,
+        'Hola, me interesa tu servicio. ¿Podemos coordinar?'
+      );
+      Alert.alert(
+        'Solicitud enviada',
+        `${servicio.profesional} recibirá tu solicitud.`
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo enviar la solicitud');
+    }
+  };
+
+  const contactar = async (servicio: Servicio) => {
+    let telefono: string | null = null;
+
+    try {
+      telefono = (await Api.usuario(servicio.autorId)).telefono;
+    } catch (e) {
+      mostrarError(e, 'No se pudo obtener el contacto');
+      return;
+    }
+
+    // Si el profesional no comparte su teléfono, se envía una solicitud por la app.
+    if (!telefono) {
+      Alert.alert(
+        'Contactar',
+        `${servicio.profesional} no muestra su teléfono. ¿Deseas enviarle una solicitud?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Enviar solicitud',
+            onPress: () => solicitarServicio(servicio),
+          },
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       'Llamar al profesional',
       `¿Deseas llamar al ${telefono}?`,
       [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
+        { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Llamar',
           onPress: () => {
@@ -249,7 +296,12 @@ export default function Servicios() {
           </View>
         </View>
 
-        {filtrados.length === 0 ? (
+        {cargando ? (
+          <ActivityIndicator
+            color={C.principal}
+            style={{ marginTop: 30 }}
+          />
+        ) : filtrados.length === 0 ? (
           <View style={styles.vacio}>
             <View style={styles.vacioIconoContenedor}>
               <Ionicons
@@ -322,7 +374,7 @@ export default function Servicios() {
 
               <Pressable
                 style={styles.botonLlamar}
-                onPress={() => llamar(servicio.telefono)}
+                onPress={() => contactar(servicio)}
                 accessibilityRole="button"
                 accessibilityLabel={`Llamar a ${servicio.profesional}`}
               >

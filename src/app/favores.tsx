@@ -1,8 +1,9 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -15,6 +16,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Publicacion } from '@/lib/api';
+import {
+  emojiCategoria,
+  mostrarError,
+  tiempoRelativo,
+} from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -29,7 +37,7 @@ const C = {
 type TipoFavor = 'necesito' | 'ofrezco';
 
 type Favor = {
-  id: number;
+  id: string;
   titulo: string;
   persona: string;
   tiempo: string;
@@ -37,55 +45,39 @@ type Favor = {
   tipo: TipoFavor;
 };
 
-const iniciales: Favor[] = [
-  {
-    id: 1,
-    titulo: 'Préstamo de escalera',
-    persona: 'María',
-    tiempo: 'Hace 10 min',
-    icono: '🪜',
-    tipo: 'necesito',
-  },
-  {
-    id: 2,
-    titulo: 'Apoyo en tareas',
-    persona: 'José',
-    tiempo: 'Hace 30 min',
-    icono: '📖',
-    tipo: 'necesito',
-  },
-  {
-    id: 3,
-    titulo: 'Donación de ropa',
-    persona: 'Lucía',
-    tiempo: 'Hace 1 h',
-    icono: '👕',
-    tipo: 'necesito',
-  },
-  {
-    id: 4,
-    titulo: 'Ayuda con computadoras',
-    persona: 'Miguel',
-    tiempo: 'Hace 20 min',
-    icono: '💻',
-    tipo: 'ofrezco',
-  },
-  {
-    id: 5,
-    titulo: 'Clases de matemáticas',
-    persona: 'Andrea',
-    tiempo: 'Hace 45 min',
-    icono: '📚',
-    tipo: 'ofrezco',
-  },
-];
+const aFavor = (p: Publicacion): Favor => ({
+  id: p.id,
+  titulo: p.titulo,
+  persona: p.autor.nombre_completo,
+  tiempo: tiempoRelativo(p.created_at),
+  icono: emojiCategoria(p.categoria?.nombre ?? 'Apoyo'),
+  tipo: p.direccion === 'SOLICITA' ? 'necesito' : 'ofrezco',
+});
 
 export default function Favores() {
   const [pestana, setPestana] =
     useState<TipoFavor>('necesito');
 
-  const [favores, setFavores] =
-    useState<Favor[]>(iniciales);
+  const [favores, setFavores] = useState<Favor[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [enviando, setEnviando] = useState(false);
+
+  const cargar = useCallback(async () => {
+    try {
+      const lista = await Api.publicaciones({ tipo: 'FAVOR' });
+      setFavores(lista.map(aFavor));
+    } catch (e) {
+      mostrarError(e, 'No se pudieron cargar los favores');
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargar();
+    }, [cargar])
+  );
 
   const [modalVisible, setModalVisible] =
     useState(false);
@@ -97,32 +89,37 @@ export default function Favores() {
     (favor) => favor.tipo === pestana
   );
 
-  const publicar = () => {
-    if (!titulo.trim() || !nombre.trim()) {
+  // El campo "nombre" del formulario original ahora guarda los detalles del favor:
+  // el autor ya se conoce por la sesión.
+  const publicar = async () => {
+    if (!titulo.trim()) {
       Alert.alert(
         'Campos incompletos',
-        'Ingresa tu nombre y el título del favor.'
+        'Escribe el título del favor.'
       );
       return;
     }
 
-    const nuevo: Favor = {
-      id: Date.now(),
-      titulo: titulo.trim(),
-      persona: nombre.trim(),
-      tiempo: 'Ahora',
-      icono: pestana === 'necesito' ? '🤝' : '💚',
-      tipo: pestana,
-    };
+    setEnviando(true);
 
-    setFavores((anteriores) => [
-      nuevo,
-      ...anteriores,
-    ]);
+    try {
+      await Api.crearPublicacion({
+        tipo: 'FAVOR',
+        direccion:
+          pestana === 'necesito' ? 'SOLICITA' : 'OFRECE',
+        titulo: titulo.trim().slice(0, 80),
+        descripcion: (nombre.trim() || titulo.trim()).slice(0, 1000),
+      });
 
-    setTitulo('');
-    setNombre('');
-    setModalVisible(false);
+      setTitulo('');
+      setNombre('');
+      setModalVisible(false);
+      await cargar();
+    } catch (e) {
+      mostrarError(e, 'No se pudo publicar el favor');
+    } finally {
+      setEnviando(false);
+    }
   };
 
   return (
@@ -231,7 +228,12 @@ export default function Favores() {
           </View>
         </View>
 
-        {filtrados.length === 0 ? (
+        {cargando ? (
+          <ActivityIndicator
+            color={C.principal}
+            style={{ marginTop: 30 }}
+          />
+        ) : filtrados.length === 0 ? (
           <View style={styles.vacio}>
             <View style={styles.vacioIconoContenedor}>
               <Ionicons
@@ -361,16 +363,16 @@ export default function Favores() {
             </View>
 
             <Text style={styles.label}>
-              Tu nombre
+              Detalles (opcional)
             </Text>
 
             <TextInput
               style={styles.input}
-              placeholder="Escribe tu nombre"
+              placeholder="Cuándo, dónde, qué necesitas exactamente…"
               placeholderTextColor={C.secundario}
               value={nombre}
               onChangeText={setNombre}
-              autoCapitalize="words"
+              maxLength={500}
             />
 
             <Text style={styles.label}>
@@ -390,11 +392,16 @@ export default function Favores() {
             <Pressable
               style={styles.botonPublicar}
               onPress={publicar}
+              disabled={enviando}
               accessibilityRole="button"
             >
-              <Text style={styles.textoPublicar}>
-                Publicar favor
-              </Text>
+              {enviando ? (
+                <ActivityIndicator color={C.blanco} />
+              ) : (
+                <Text style={styles.textoPublicar}>
+                  Publicar favor
+                </Text>
+              )}
             </Pressable>
           </View>
         </KeyboardAvoidingView>

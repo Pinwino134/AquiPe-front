@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -16,6 +16,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Publicacion } from '@/lib/api';
+import { setUsuario, useUsuario } from '@/lib/session';
+import {
+  ESTADO_TEXTO,
+  emojiCategoria,
+  mostrarError,
+  zonaIdPorNombre,
+} from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -34,62 +43,68 @@ type Seccion =
   | 'configuracion'
   | null;
 
-const publicacionesIniciales = [
-  {
-    id: 1,
-    titulo: 'Necesito un electricista',
-    tipo: 'Servicio',
-    descripcion: 'Revisión de instalación eléctrica en casa.',
-    estado: 'En búsqueda',
-    icono: '⚡',
-  },
-  {
-    id: 2,
-    titulo: 'Apoyo con tareas escolares',
-    tipo: 'Favor',
-    descripcion: 'Busco ayuda con ejercicios de matemáticas.',
-    estado: 'Publicado',
-    icono: '📚',
-  },
-  {
-    id: 3,
-    titulo: 'Préstamo de herramientas',
-    tipo: 'Favor',
-    descripcion: 'Puedo prestar herramientas básicas a mis vecinos.',
-    estado: 'Completado',
-    icono: '🔧',
-  },
-];
+type ItemPublicacion = {
+  id: string;
+  titulo: string;
+  tipo: string;
+  descripcion: string;
+  estado: string;
+  icono: string;
+};
 
-const recomendaciones = [
-  {
-    id: 1,
-    nombre: 'Carlos R.',
-    servicio: 'Electricista',
-    calificacion: '4.8',
-    opiniones: 12,
-    icono: '⚡',
-    descripcion: 'Atención responsable y puntual.',
-  },
-  {
-    id: 2,
-    nombre: 'Andrea P.',
-    servicio: 'Clases particulares',
-    calificacion: '4.9',
-    opiniones: 21,
-    icono: '📚',
-    descripcion: 'Excelente apoyo educativo.',
-  },
-  {
-    id: 3,
-    nombre: 'Miguel T.',
-    servicio: 'Soporte técnico',
-    calificacion: '4.7',
-    opiniones: 15,
-    icono: '💻',
-    descripcion: 'Soluciones rápidas para equipos.',
-  },
-];
+type Recomendacion = {
+  id: string;
+  nombre: string;
+  servicio: string;
+  calificacion: string;
+  opiniones: number;
+  icono: string;
+  descripcion: string;
+};
+
+const TIPO_TEXTO: Record<string, string> = {
+  SERVICIO: 'Servicio',
+  FAVOR: 'Favor',
+  RECURSO: 'Recurso',
+  EMERGENCIA: 'Emergencia',
+};
+
+const aItem = (p: Publicacion): ItemPublicacion => ({
+  id: p.id,
+  titulo: p.titulo,
+  tipo: `${TIPO_TEXTO[p.tipo] ?? p.tipo} · ${
+    p.direccion === 'OFRECE' ? 'Ofrezco' : 'Necesito'
+  }`,
+  descripcion: p.descripcion,
+  estado: ESTADO_TEXTO[p.estado] ?? p.estado,
+  icono: emojiCategoria(p.categoria?.nombre),
+});
+
+// El backend aún no tiene endpoint de "recomendados": se arma con los
+// profesionales mejor calificados entre los servicios publicados.
+const aRecomendaciones = (lista: Publicacion[]): Recomendacion[] => {
+  const porAutor = new Map<string, Publicacion>();
+
+  for (const p of lista) {
+    if (!porAutor.has(p.autor.id)) porAutor.set(p.autor.id, p);
+  }
+
+  return [...porAutor.values()]
+    .sort(
+      (a, b) =>
+        b.autor.calificacion_promedio - a.autor.calificacion_promedio
+    )
+    .slice(0, 5)
+    .map((p) => ({
+      id: p.autor.id,
+      nombre: p.autor.nombre_completo,
+      servicio: p.titulo,
+      calificacion: p.autor.calificacion_promedio.toFixed(1),
+      opiniones: p.autor.total_resenas,
+      icono: emojiCategoria(p.categoria?.nombre),
+      descripcion: p.descripcion,
+    }));
+};
 
 const recursosIniciales = [
   {
@@ -119,6 +134,8 @@ const recursosIniciales = [
 ];
 
 export default function Perfil() {
+  const usuario = useUsuario();
+
   const [seccion, setSeccion] =
     useState<Seccion>(null);
 
@@ -126,25 +143,70 @@ export default function Perfil() {
     useState(false);
 
   const [nombre, setNombre] =
-    useState('Vecino AquiPe');
+    useState(usuario?.nombre_completo ?? 'Vecino AquiPe');
 
   const [telefono, setTelefono] =
-    useState('999 888 777');
+    useState(usuario?.telefono ?? '');
 
   const [zona, setZona] =
-    useState('Mi barrio');
+    useState(usuario?.zona?.nombre ?? 'Sin zona');
 
   const [notificaciones, setNotificaciones] =
-    useState(true);
+    useState(usuario?.notificaciones_activas ?? true);
 
   const [perfilPublico, setPerfilPublico] =
-    useState(true);
+    useState(usuario?.perfil_publico ?? true);
+
+  const [recomendaciones, setRecomendaciones] =
+    useState<Recomendacion[]>([]);
 
   const [recursos, setRecursos] =
     useState(recursosIniciales);
 
   const [publicaciones, setPublicaciones] =
-    useState(publicacionesIniciales);
+    useState<ItemPublicacion[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let activo = true;
+
+      (async () => {
+        try {
+          const mias = await Api.misPublicaciones();
+          if (activo) setPublicaciones(mias.map(aItem));
+        } catch (e) {
+          if (activo) mostrarError(e, 'No se pudieron cargar tus publicaciones');
+        }
+
+        try {
+          const servicios = await Api.publicaciones({
+            tipo: 'SERVICIO',
+            direccion: 'OFRECE',
+          });
+          if (activo) setRecomendaciones(aRecomendaciones(servicios));
+        } catch {
+          /* las recomendaciones son opcionales */
+        }
+      })();
+
+      return () => {
+        activo = false;
+      };
+    }, [])
+  );
+
+  // Guarda una preferencia en el backend; si falla, revierte el interruptor.
+  const guardarPreferencia = async (
+    cambio: { notificaciones_activas?: boolean; perfil_publico?: boolean },
+    revertir: () => void
+  ) => {
+    try {
+      setUsuario(await Api.actualizarPerfil(cambio));
+    } catch (e) {
+      revertir();
+      mostrarError(e, 'No se pudo guardar la preferencia');
+    }
+  };
 
   const [editarPerfil, setEditarPerfil] =
     useState(false);
@@ -177,7 +239,7 @@ export default function Perfil() {
     setEditarPerfil(true);
   };
 
-  const guardarPerfil = () => {
+  const guardarPerfil = async () => {
     if (
       !nombreTemporal.trim() ||
       !telefonoTemporal.trim() ||
@@ -190,15 +252,39 @@ export default function Perfil() {
       return;
     }
 
-    setNombre(nombreTemporal.trim());
-    setTelefono(telefonoTemporal.trim());
-    setZona(zonaTemporal.trim());
-    setEditarPerfil(false);
+    try {
+      const zonaId = await zonaIdPorNombre(zonaTemporal);
 
-    Alert.alert(
-      'Perfil actualizado',
-      'Tus cambios se guardaron durante esta sesión.'
-    );
+      if (zonaId == null) {
+        const zonas = await Api.zonas();
+        Alert.alert(
+          'Zona no encontrada',
+          `Escribe una de estas zonas: ${zonas
+            .map((z) => z.nombre)
+            .join(', ')}.`
+        );
+        return;
+      }
+
+      const actualizado = await Api.actualizarPerfil({
+        nombre_completo: nombreTemporal.trim(),
+        telefono: telefonoTemporal.trim(),
+        zona_id: zonaId,
+      });
+
+      setUsuario(actualizado);
+      setNombre(actualizado.nombre_completo);
+      setTelefono(actualizado.telefono);
+      setZona(actualizado.zona?.nombre ?? 'Sin zona');
+      setEditarPerfil(false);
+
+      Alert.alert(
+        'Perfil actualizado',
+        'Tus cambios se guardaron en tu cuenta.'
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo actualizar el perfil');
+    }
   };
 
   const agregarRecurso = () => {
@@ -247,7 +333,7 @@ export default function Perfil() {
     );
   };
 
-  const eliminarPublicacion = (id: number) => {
+  const eliminarPublicacion = (id: string) => {
     Alert.alert(
       'Eliminar publicación',
       '¿Deseas eliminar esta publicación?',
@@ -259,10 +345,15 @@ export default function Perfil() {
         {
           text: 'Eliminar',
           style: 'destructive',
-          onPress: () => {
-            setPublicaciones((prev) =>
-              prev.filter((p) => p.id !== id)
-            );
+          onPress: async () => {
+            try {
+              await Api.eliminarPublicacion(id);
+              setPublicaciones((prev) =>
+                prev.filter((p) => p.id !== id)
+              );
+            } catch (e) {
+              mostrarError(e, 'No se pudo eliminar');
+            }
           },
         },
       ]
@@ -271,8 +362,8 @@ export default function Perfil() {
 
   const cerrarSesion = () => {
     Alert.alert(
-      'Volver al inicio de sesión',
-      '¿Deseas regresar a la pantalla de inicio de sesión?',
+      'Cerrar sesión',
+      '¿Deseas cerrar tu sesión?',
       [
         {
           text: 'Cancelar',
@@ -280,8 +371,10 @@ export default function Perfil() {
         },
         {
           text: 'Continuar',
-          onPress: () =>
-            router.replace('/login'),
+          onPress: () => {
+            setUsuario(null);
+            router.replace('/login');
+          },
         },
       ]
     );
@@ -605,7 +698,13 @@ export default function Perfil() {
 
           <Switch
             value={notificaciones}
-            onValueChange={setNotificaciones}
+            onValueChange={(valor) => {
+              setNotificaciones(valor);
+              guardarPreferencia(
+                { notificaciones_activas: valor },
+                () => setNotificaciones(!valor)
+              );
+            }}
             trackColor={{
               false: C.borde,
               true: C.principal,
@@ -627,7 +726,13 @@ export default function Perfil() {
 
           <Switch
             value={perfilPublico}
-            onValueChange={setPerfilPublico}
+            onValueChange={(valor) => {
+              setPerfilPublico(valor);
+              guardarPreferencia(
+                { perfil_publico: valor },
+                () => setPerfilPublico(!valor)
+              );
+            }}
             trackColor={{
               false: C.borde,
               true: C.principal,
@@ -638,8 +743,7 @@ export default function Perfil() {
       </View>
 
       <Text style={s.notaDemo}>
-        Estas preferencias funcionan como demostración
-        y no modifican una cuenta real.
+        Tus cambios se guardan en tu cuenta.
       </Text>
     </>
   );

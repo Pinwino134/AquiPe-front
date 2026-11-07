@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,6 +20,9 @@ import MapView, {
   Region,
 } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Publicacion } from '@/lib/api';
+import { mostrarError, zonaIdPorNombre } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -40,7 +43,7 @@ type Ubicacion = {
 };
 
 type Registro = {
-  id: number;
+  id: string;
   tipo: Accion;
   titulo: string;
   descripcion: string;
@@ -56,69 +59,22 @@ const REGION_INICIAL: Region = {
   longitudeDelta: 0.035,
 };
 
-const recursosIniciales: Registro[] = [
-  {
-    id: 1,
-    tipo: 'ofrecer',
-    titulo: 'Puesto de apoyo comunitario',
-    descripcion: 'Agua potable y alimentos no perecibles.',
-    zona: 'Cercado',
-    cantidad: '20 botellas de agua y 15 paquetes',
-    ubicacion: {
-      latitude: -16.399,
-      longitude: -71.536,
-    },
-  },
-  {
-    id: 2,
-    tipo: 'ofrecer',
-    titulo: 'Botiquín comunitario',
-    descripcion: 'Vendas, gasas y artículos de primeros auxilios.',
-    zona: 'Yanahuara',
-    cantidad: '3 botiquines',
-    ubicacion: {
-      latitude: -16.391,
-      longitude: -71.543,
-    },
-  },
-  {
-    id: 3,
-    tipo: 'ofrecer',
-    titulo: 'Punto de entrega de alimentos',
-    descripcion: 'Alimentos básicos disponibles para vecinos.',
-    zona: 'Cayma',
-    cantidad: '10 paquetes',
-    ubicacion: {
-      latitude: -16.383,
-      longitude: -71.548,
-    },
-  },
-];
+const aRegistro = (p: Publicacion): Registro | null => {
+  if (p.latitud == null || p.longitud == null) return null;
 
-const reportesIniciales: Registro[] = [
-  {
-    id: 4,
-    tipo: 'solicitar',
-    titulo: 'Solicitud de agua potable',
-    descripcion: 'Se necesita agua para varias familias.',
-    zona: 'Cercado',
+  return {
+    id: p.id,
+    tipo: p.direccion === 'OFRECE' ? 'ofrecer' : 'solicitar',
+    titulo: p.titulo,
+    descripcion: p.descripcion,
+    zona: p.zona?.nombre ?? 'Sin zona',
+    cantidad: p.emergencia?.detalle_cantidad ?? undefined,
     ubicacion: {
-      latitude: -16.402,
-      longitude: -71.531,
+      latitude: p.latitud,
+      longitude: p.longitud,
     },
-  },
-  {
-    id: 5,
-    tipo: 'solicitar',
-    titulo: 'Apoyo para adulto mayor',
-    descripcion: 'Se solicita asistencia comunitaria.',
-    zona: 'Yanahuara',
-    ubicacion: {
-      latitude: -16.394,
-      longitude: -71.548,
-    },
-  },
-];
+  };
+};
 
 export default function Emergencias() {
   const mapaRef = useRef<MapView>(null);
@@ -149,11 +105,32 @@ export default function Emergencias() {
   const [registroSeleccionado, setRegistroSeleccionado] =
     useState<Registro | null>(null);
 
-  const [recursos, setRecursos] =
-    useState<Registro[]>(recursosIniciales);
+  const [recursos, setRecursos] = useState<Registro[]>([]);
+  const [reportes, setReportes] = useState<Registro[]>([]);
+  const [guardando, setGuardando] = useState(false);
 
-  const [reportes, setReportes] =
-    useState<Registro[]>(reportesIniciales);
+  const cargar = useCallback(async () => {
+    try {
+      const lista = await Api.publicaciones({
+        tipo: 'EMERGENCIA',
+      });
+
+      const registros = lista
+        .map(aRegistro)
+        .filter((r): r is Registro => r !== null);
+
+      setRecursos(registros.filter((r) => r.tipo === 'ofrecer'));
+      setReportes(registros.filter((r) => r.tipo === 'solicitar'));
+    } catch (e) {
+      mostrarError(e, 'No se pudieron cargar las emergencias');
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargar();
+    }, [cargar])
+  );
 
   const [regionMapa, setRegionMapa] =
     useState<Region>(REGION_INICIAL);
@@ -195,7 +172,7 @@ export default function Emergencias() {
     setUbicacionVisible(false);
   };
 
-  const guardar = () => {
+  const guardar = async () => {
     if (
       !titulo.trim() ||
       !descripcion.trim() ||
@@ -226,42 +203,54 @@ export default function Emergencias() {
 
     if (!accion) return;
 
-    const nuevo: Registro = {
-      id: Date.now(),
-      tipo: accion,
-      titulo: titulo.trim(),
-      descripcion: descripcion.trim(),
-      zona: zona.trim(),
-      cantidad:
-        accion === 'ofrecer'
-          ? cantidad.trim()
-          : undefined,
-      ubicacion,
-    };
+    if (guardando) return;
+    setGuardando(true);
 
-    if (accion === 'ofrecer') {
-      setRecursos((prev) => [
-        nuevo,
-        ...prev,
-      ]);
-    } else {
-      setReportes((prev) => [
-        nuevo,
-        ...prev,
-      ]);
+    try {
+      // La zona se escribe como texto libre: se busca en el catálogo
+      // y, si no coincide, se conserva dentro de la descripción.
+      const zonaId = await zonaIdPorNombre(zona);
+
+      await Api.crearPublicacion({
+        tipo: 'EMERGENCIA',
+        direccion: accion === 'ofrecer' ? 'OFRECE' : 'SOLICITA',
+        titulo: titulo.trim().slice(0, 80),
+        descripcion: (
+          zonaId ? descripcion.trim() : `${descripcion.trim()}\nZona: ${zona.trim()}`
+        ).slice(0, 1000),
+        zona_id: zonaId,
+        latitud: ubicacion.latitude,
+        longitud: ubicacion.longitude,
+        emergencia: {
+          nivel_urgencia: 'ALTA',
+          ...(accion === 'ofrecer'
+            ? {
+                // "20 botellas de agua" -> cantidad 20 + texto completo
+                cantidad: parseInt(cantidad.match(/\d+/)?.[0] ?? '1', 10) || 1,
+                detalle_cantidad: cantidad.trim().slice(0, 200),
+              }
+            : {}),
+        },
+      });
+
+      setAccion(null);
+      setTitulo('');
+      setDescripcion('');
+      setZona('');
+      setCantidad('');
+      setUbicacion(null);
+
+      await cargar();
+
+      Alert.alert(
+        'Registro guardado',
+        'Tu información ya está visible para otros vecinos.'
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo guardar');
+    } finally {
+      setGuardando(false);
     }
-
-    setAccion(null);
-    setTitulo('');
-    setDescripcion('');
-    setZona('');
-    setCantidad('');
-    setUbicacion(null);
-
-    Alert.alert(
-      'Registro guardado',
-      'Tu información se registró en esta sesión de demostración. No se enviaron alertas reales.'
-    );
   };
 
   const verEnMapa = (registro: Registro) => {
@@ -674,9 +663,9 @@ export default function Emergencias() {
               </Pressable>
 
               <Text style={s.modalNote}>
-                Registro demostrativo. No se notificará
-                automáticamente a vecinos ni a servicios
-                de emergencia.
+                Esto no reemplaza a los servicios de
+                emergencia. En una urgencia real, llama al 105 (Policía)
+                o al 116 (Bomberos).
               </Text>
             </View>
           </ScrollView>

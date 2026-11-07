@@ -2,6 +2,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api } from '@/lib/api';
+import { setUsuario } from '@/lib/session';
+import { mostrarError } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -27,6 +32,24 @@ const C = {
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [cargando, setCargando] = useState(false);
+
+  const iniciar = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Campos incompletos', 'Ingresa tu correo y tu contraseña.');
+      return;
+    }
+    setCargando(true);
+    try {
+      const usuario = await Api.login(email.trim(), password);
+      setUsuario(usuario);
+      router.replace('/inicio');
+    } catch (e) {
+      mostrarError(e, 'No se pudo iniciar sesión');
+    } finally {
+      setCargando(false);
+    }
+  };
 
   return (
     <SafeAreaView style={s.page}>
@@ -116,13 +139,18 @@ export default function Login() {
             </Pressable>
 
             <Pressable
-              style={s.button}
-              onPress={() => router.replace('/inicio')}
+              style={[s.button, cargando && { opacity: 0.7 }]}
+              onPress={iniciar}
+              disabled={cargando}
               accessibilityRole="button"
             >
-              <Text style={s.buttonText}>
-                Iniciar sesión
-              </Text>
+              {cargando ? (
+                <ActivityIndicator color={C.blanco} />
+              ) : (
+                <Text style={s.buttonText}>
+                  Iniciar sesión
+                </Text>
+              )}
             </Pressable>
 
             <Pressable

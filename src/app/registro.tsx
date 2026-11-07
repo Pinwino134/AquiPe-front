@@ -1,7 +1,9 @@
 
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -12,6 +14,10 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { Api, type Zona } from '@/lib/api';
+import { setUsuario } from '@/lib/session';
+import { mostrarError } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -28,6 +34,40 @@ export default function Registro() {
   const [correo, setCorreo] = useState('');
   const [telefono, setTelefono] = useState('');
   const [contrasena, setContrasena] = useState('');
+  const [zonas, setZonas] = useState<Zona[]>([]);
+  const [zonaId, setZonaId] = useState<number | null>(null);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    Api.zonas().then(setZonas).catch(() => setZonas([]));
+  }, []);
+
+  const crearCuenta = async () => {
+    if (!nombre.trim() || !correo.trim() || !telefono.trim() || !contrasena) {
+      Alert.alert('Campos incompletos', 'Completa todos los datos.');
+      return;
+    }
+    if (contrasena.length < 6) {
+      Alert.alert('Contraseña muy corta', 'Usa al menos 6 caracteres.');
+      return;
+    }
+    setCargando(true);
+    try {
+      const usuario = await Api.registro({
+        nombre_completo: nombre.trim(),
+        correo: correo.trim(),
+        telefono: telefono.trim(),
+        password: contrasena,
+        zona_id: zonaId,
+      });
+      setUsuario(usuario);
+      router.replace('/inicio');
+    } catch (e) {
+      mostrarError(e, 'No se pudo crear la cuenta');
+    } finally {
+      setCargando(false);
+    }
+  };
 
   return (
     <SafeAreaView style={s.page}>
@@ -117,17 +157,41 @@ export default function Registro() {
               autoComplete="new-password"
             />
 
+            {zonas.length > 0 && (
+              <>
+                <Text style={s.label}>Tu zona</Text>
+                <View style={s.zonaFila}>
+                  {zonas.map((z) => {
+                    const activa = zonaId === z.id;
+                    return (
+                      <Pressable
+                        key={z.id}
+                        style={[s.zonaChip, activa && s.zonaChipActiva]}
+                        onPress={() => setZonaId(activa ? null : z.id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activa }}
+                      >
+                        <Text style={[s.zonaTexto, activa && s.zonaTextoActivo]}>
+                          {z.nombre}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
             <Pressable
-              style={s.button}
-              onPress={() =>
-                router.replace({
-                  pathname: '/inicio',
-                  params: { nombre: nombre.trim() },
-                })
-              }
+              style={[s.button, cargando && { opacity: 0.7 }]}
+              onPress={crearCuenta}
+              disabled={cargando}
               accessibilityRole="button"
             >
-              <Text style={s.buttonText}>Continuar</Text>
+              {cargando ? (
+                <ActivityIndicator color={C.blanco} />
+              ) : (
+                <Text style={s.buttonText}>Continuar</Text>
+              )}
             </Pressable>
 
             <Pressable
@@ -306,6 +370,37 @@ const s = StyleSheet.create({
     fontSize: 16,
     color: C.blanco,
     fontWeight: '800',
+  },
+
+  zonaFila: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+
+  zonaChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: C.verdeClaro,
+    borderWidth: 1,
+    borderColor: C.borde,
+  },
+
+  zonaChipActiva: {
+    backgroundColor: C.principal,
+    borderColor: C.principal,
+  },
+
+  zonaTexto: {
+    color: C.principal,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  zonaTextoActivo: {
+    color: C.blanco,
   },
 
   loginLinkContainer: {

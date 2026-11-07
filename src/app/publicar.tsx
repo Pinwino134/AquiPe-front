@@ -15,6 +15,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Api } from '@/lib/api';
+import { getUsuario } from '@/lib/session';
+import {
+  mostrarError,
+  obtenerUbicacion,
+  zonaIdPorNombre,
+} from '@/lib/ui';
+
 const C = {
   principal: '#146C67',
   fondo: '#F6F7F3',
@@ -57,6 +65,7 @@ export default function Publicar() {
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [zona, setZona] = useState('');
+  const [enviando, setEnviando] = useState(false);
 
   const siguiente = () => {
     if (paso === 1) {
@@ -100,17 +109,55 @@ export default function Publicar() {
     }
   };
 
-  const publicar = () => {
-    Alert.alert(
-      '¡Solicitud publicada!',
-      'Tu solicitud se registró como demostración. Todavía no se envía a otros vecinos ni se guarda en una base de datos.',
-      [
-        {
-          text: 'Entendido',
-          onPress: () => router.replace('/inicio'),
-        },
-      ]
-    );
+  const publicar = async () => {
+    if (!categoria || enviando) return;
+    setEnviando(true);
+
+    try {
+      // Las categorías de esta pantalla (Herramienta, Apoyo, Donación, Otro)
+      // existen en el backend como categorías de tipo FAVOR.
+      const categoriasApi = await Api.categorias('FAVOR');
+      const categoriaId =
+        categoriasApi.find((c) => c.nombre === categoria)?.id ?? null;
+
+      const zonaId = await zonaIdPorNombre(zona);
+
+      // Ubicación: la del perfil / zona la pone el backend. Solo si el usuario
+      // no tiene ninguna, se usa el GPS como último recurso.
+      const sinUbicacion =
+        getUsuario()?.latitud == null && zonaId == null;
+      const pos = sinUbicacion ? await obtenerUbicacion() : null;
+
+      await Api.crearPublicacion({
+        tipo: 'FAVOR',
+        direccion: 'SOLICITA',
+        categoria_id: categoriaId,
+        titulo: titulo.trim(),
+        descripcion: (
+          zonaId
+            ? descripcion.trim()
+            : `${descripcion.trim()}\nZona: ${zona.trim()}`
+        ).slice(0, 1000),
+        zona_id: zonaId,
+        latitud: pos?.latitude ?? null,
+        longitud: pos?.longitude ?? null,
+      });
+
+      Alert.alert(
+        '¡Solicitud publicada!',
+        'Tu solicitud ya es visible para otros vecinos.',
+        [
+          {
+            text: 'Entendido',
+            onPress: () => router.replace('/inicio'),
+          },
+        ]
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo publicar');
+    } finally {
+      setEnviando(false);
+    }
   };
 
   return (
@@ -396,7 +443,7 @@ export default function Publicar() {
                     color={C.principal}
                   />
                   <Text style={s.statusText}>
-                    Estado inicial: Pendiente
+                    Estado inicial: Publicado
                   </Text>
                 </View>
               </View>
@@ -408,9 +455,8 @@ export default function Publicar() {
                   color={C.principal}
                 />
                 <Text style={s.infoText}>
-                  Esta publicación es una
-                  demostración. No será visible
-                  para otros usuarios.
+                  Tu solicitud será visible para
+                  los vecinos de tu zona.
                 </Text>
               </View>
 
@@ -433,13 +479,16 @@ export default function Publicar() {
 
         <View style={s.footer}>
           <Pressable
-            style={s.nextButton}
+            style={[s.nextButton, enviando && { opacity: 0.7 }]}
+            disabled={enviando}
             onPress={
               paso === 3 ? publicar : siguiente
             }
           >
             <Text style={s.nextText}>
-              {paso === 3
+              {enviando
+                ? 'Publicando…'
+                : paso === 3
                 ? 'Publicar solicitud'
                 : 'Siguiente'}
             </Text>
