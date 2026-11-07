@@ -1,5 +1,7 @@
+
 import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+import { Platform, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedIcon } from '@/components/animated-icon';
@@ -34,12 +36,23 @@ export default function HomeScreen() {
       <SafeAreaView style={styles.safeArea}>
         <ThemedView style={styles.heroSection}>
           <AnimatedIcon />
+
           <ThemedText type="title" style={styles.title}>
             Bienvenidos a&nbsp;AquiPe
           </ThemedText>
+
           <ThemedText type="title" style={styles.title}>
             hola
           </ThemedText>
+
+          <Pressable
+            style={styles.botonLogin}
+            onPress={() => router.push('/login')}
+          >
+            <ThemedText style={styles.textoBoton}>
+              Iniciar sesión
+            </ThemedText>
+          </Pressable>
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
@@ -93,5 +106,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.four,
     borderRadius: Spacing.four,
+  },
+  botonLogin: {
+    backgroundColor: '#00877E',
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 15,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  textoBoton: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
