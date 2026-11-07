@@ -1,97 +1,91 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+
+import React from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StatusBar,
+  ScrollView,
+} from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+import { useRouter } from 'expo-router';
+import { styles } from '../styles/bienvenida.styles';
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Bienvenidos a&nbsp;AquiPe
-          </ThemedText>
-          <ThemedText type="title" style={styles.title}>
-            hola
-          </ThemedText>
-        </ThemedView>
+    <SafeAreaView style={styles.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F6F7F3"
+      />
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Logo */}
+        <View style={styles.logoContainer}>
+          <View style={styles.logoCircle}>
+          </View>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+          <Text style={styles.nombre}>
+            nombre
+          </Text>
+
+          <Text style={styles.eslogan}>
+            Donde tu comunidad te acompaña
+          </Text>
+        </View>
+
+        {/* Bienvenida */}
+        <View style={styles.descripcion}>
+          <Text style={styles.titulo}>
+            ¡Bienvenido a Aylluma!
+          </Text>
+
+          <Text style={styles.subtitulo}>
+            Conecta con tus vecinos, encuentra
+            oportunidades y comparte ayuda
+            cuando más se necesita.
+          </Text>
+        </View>
+
+        {/* Botones */}
+        <View style={styles.botones}>
+
+          {/* Iniciar sesión */}
+          <TouchableOpacity
+            style={styles.botonPrincipal}
+            activeOpacity={0.8}
+            onPress={() => router.push('/login')}
+          >
+            <Text style={styles.textoPrincipal}>
+              Iniciar sesión
+            </Text>
+          </TouchableOpacity>
+
+          {/* Crear cuenta */}
+          <TouchableOpacity
+            style={styles.botonSecundario}
+            activeOpacity={0.8}
+            onPress={() => router.push('/registro')}
+          >
+            <Text style={styles.textoSecundario}>
+              Crear cuenta
+            </Text>
+          </TouchableOpacity>
+
+        </View>
+
+        {/* Pie de página */}
+        <Text style={styles.footer}>
+          Juntos construimos una comunidad mejor
+        </Text>
+
+      </ScrollView>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

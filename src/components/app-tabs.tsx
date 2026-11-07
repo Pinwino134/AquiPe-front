@@ -1,3 +1,4 @@
+
 import { NativeTabs } from 'expo-router/native-tabs';
 import { useColorScheme } from 'react-native';
 
@@ -11,21 +12,38 @@ export default function AppTabs() {
     <NativeTabs
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
+      labelStyle={{
+        selected: { color: colors.text },
+      }}
+    >
+      {/* Pestaña Inicio */}
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>
+          Inicio
+        </NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/home.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+      {/* Pestaña Servicios */}
+      <NativeTabs.Trigger name="servicios">
+        <NativeTabs.Trigger.Label>
+          Servicios
+        </NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/explore.png')}
           renderingMode="template"
         />
+      </NativeTabs.Trigger>
+
+      {/* Pestaña Perfil */}
+      <NativeTabs.Trigger name="perfil">
+        <NativeTabs.Trigger.Label>
+          Perfil
+        </NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="person.crop.circle" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );
