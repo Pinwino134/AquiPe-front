@@ -1,204 +1,156 @@
 
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import { StyleSheet } from 'react-native';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { styles } from '../styles/login.styles';
+export const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F6F7F3',
+  },
 
-export default function LoginScreen() {
-  const router = useRouter();
+  contenido: {
+    flexGrow: 1,
+    paddingHorizontal: 25,
+    paddingTop: 15,
+    paddingBottom: 35,
+  },
 
-  const [correo, setCorreo] = useState('');
-  const [contrasena, setContrasena] = useState('');
-  const [mostrarPassword, setMostrarPassword] = useState(false);
+  volver: {
+    alignSelf: 'flex-start',
+    paddingVertical: 10,
+  },
 
-  const iniciarSesion = () => {
-    if (!correo.trim() || !contrasena) {
-      Alert.alert(
-        'Campos incompletos',
-        'Ingresa tu correo y contraseña.'
-      );
-      return;
-    }
+  volverTexto: {
+    color: '#146C67',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 
-    const correoValido =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim());
+  encabezado: {
+    alignItems: 'center',
+    marginTop: 25,
+    marginBottom: 35,
+  },
 
-    if (!correoValido) {
-      Alert.alert(
-        'Correo inválido',
-        'Ingresa un correo electrónico válido.'
-      );
-      return;
-    }
+  nombre: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#146C67',
+    marginBottom: 30,
+  },
 
-    Alert.alert(
-      'Inicio de sesión',
-      'Formulario validado. Falta conectarlo con el backend.'
-    );
-  };
+  titulo: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    color: '#243746',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
 
-  const recuperarContrasena = () => {
-    Alert.alert(
-      'Recuperar contraseña',
-      'Esta función todavía está en desarrollo.'
-    );
-  };
+  subtitulo: {
+    fontSize: 15,
+    color: '#526A67',
+    textAlign: 'center',
+    lineHeight: 23,
+  },
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#F6F7F3"
-      />
+  formulario: {
+    width: '100%',
+    gap: 18,
+  },
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Volver */}
-          <TouchableOpacity
-            style={styles.volver}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.volverTexto}>
-              ← Volver
-            </Text>
-          </TouchableOpacity>
+  campo: {
+    gap: 8,
+  },
 
-          {/* Encabezado */}
-          <View style={styles.encabezado}>
-            <Text style={styles.nombre}>
-              NOMBRE
-            </Text>
+  etiqueta: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#243746',
+  },
 
-            <Text style={styles.titulo}>
-              ¡Bienvenido de nuevo!
-            </Text>
+  input: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DFE7E2',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    height: 54,
+    fontSize: 15,
+    color: '#243746',
+  },
 
-            <Text style={styles.subtitulo}>
-              Inicia sesión para conectar con tu comunidad.
-            </Text>
-          </View>
+  passwordContainer: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DFE7E2',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    height: 54,
+  },
 
-          {/* Formulario */}
-          <View style={styles.formulario}>
-            <View style={styles.campo}>
-              <Text style={styles.etiqueta}>
-                Correo electrónico
-              </Text>
+  passwordInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#243746',
+  },
 
-              <TextInput
-                style={styles.input}
-                placeholder="ejemplo@correo.com"
-                placeholderTextColor="#879A94"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                value={correo}
-                onChangeText={setCorreo}
-              />
-            </View>
+  mostrar: {
+    color: '#146C67',
+    fontSize: 13,
+    fontWeight: '600',
+    paddingLeft: 10,
+  },
 
-            <View style={styles.campo}>
-              <Text style={styles.etiqueta}>
-                Contraseña
-              </Text>
+  recuperar: {
+    alignSelf: 'flex-end',
+    marginTop: -5,
+  },
 
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder="Ingresa tu contraseña"
-                  placeholderTextColor="#879A94"
-                  secureTextEntry={!mostrarPassword}
-                  autoCapitalize="none"
-                  autoComplete="password"
-                  value={contrasena}
-                  onChangeText={setContrasena}
-                />
+  recuperarTexto: {
+    color: '#146C67',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
-                <TouchableOpacity
-                  onPress={() =>
-                    setMostrarPassword(!mostrarPassword)
-                  }
-                >
-                  <Text style={styles.mostrar}>
-                    {mostrarPassword ? 'Ocultar' : 'Mostrar'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+  boton: {
+    backgroundColor: '#146C67',
+    borderRadius: 12,
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
 
-            {/* Recuperar contraseña */}
-            <TouchableOpacity
-              style={styles.recuperar}
-              onPress={recuperarContrasena}
-            >
-              <Text style={styles.recuperarTexto}>
-                ¿Olvidaste tu contraseña?
-              </Text>
-            </TouchableOpacity>
+  botonTexto: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 
-            {/* Iniciar sesión */}
-            <TouchableOpacity
-              style={styles.boton}
-              activeOpacity={0.8}
-              onPress={iniciarSesion}
-            >
-              <Text style={styles.botonTexto}>
-                Iniciar sesión
-              </Text>
-            </TouchableOpacity>
-          </View>
+  registro: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    marginTop: 30,
+  },
 
-          {/* Crear cuenta */}
-          <View style={styles.registro}>
-            <Text style={styles.textoNormal}>
-              ¿No tienes una cuenta?{' '}
-            </Text>
+  textoNormal: {
+    fontSize: 14,
+    color: '#526A67',
+  },
 
-            <Text
-              style={styles.textoEnlace}
-              onPress={() => router.push('/registro')}
-            >
-              Regístrate
-            </Text>
-          </View>
+  textoEnlace: {
+    fontSize: 14,
+    color: '#146C67',
+    fontWeight: 'bold',
+  },
 
-          {/* Acceso temporal para probar Inicio */}
-          {__DEV__ && (
-            <TouchableOpacity
-              style={styles.accesoPrueba}
-              onPress={() => router.replace('/(tabs)')}
-            >
-              <Text style={styles.accesoPruebaTexto}>
-                Ver Inicio (solo prueba)
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Pie de página */}
-          <Text style={styles.footer}>
-            Juntos construimos una comunidad mejor
-          </Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
+  footer: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#526A67',
+    marginTop: 45,
+  },
+});

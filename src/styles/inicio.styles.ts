@@ -6,72 +6,108 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F6F7F3',
   },
+
   contenido: {
-    padding: 22,
-    paddingBottom: 40,
-    gap: 22,
+    paddingHorizontal: 20,
+    paddingTop: 25,
+    paddingBottom: 35,
   },
+
   encabezado: {
-    marginTop: 15,
-    gap: 5,
+    marginBottom: 25,
   },
+
   saludo: {
-    fontSize: 16,
-    color: '#526A67',
-  },
-  titulo: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#146C67',
-  },
-  banner: {
-    backgroundColor: '#E8F2ED',
-    padding: 20,
-    borderRadius: 18,
-    gap: 8,
-  },
-  bannerTitulo: {
-    fontSize: 19,
-    fontWeight: 'bold',
-    color: '#146C67',
-  },
-  descripcion: {
-    fontSize: 14,
-    color: '#526A67',
-    lineHeight: 22,
-  },
-  seccion: {
-    fontSize: 19,
+    fontSize: 27,
     fontWeight: 'bold',
     color: '#243746',
+    marginBottom: 6,
   },
-  tarjetas: {
-    gap: 14,
+
+  barrio: {
+    fontSize: 15,
+    color: '#526A67',
   },
+
+  cuadricula: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 14,
+    marginBottom: 20,
+  },
+
   tarjeta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#DFE7E2',
-    gap: 7,
+    width: '48%',
+    height: 135,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    elevation: 2,
   },
-  icono: {
-    fontSize: 28,
+
+  servicios: {
+    backgroundColor: '#146C67',
   },
-  tarjetaTitulo: {
+
+  favores: {
+    backgroundColor: '#F2A65A',
+  },
+
+  mapa: {
+    backgroundColor: '#3A9A88',
+  },
+
+  emergencia: {
+    backgroundColor: '#C43D45',
+  },
+
+  tarjetaTexto: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+
+  tarjetaTextoOscuro: {
     fontSize: 17,
     fontWeight: 'bold',
     color: '#243746',
   },
-  tarjetaDescripcion: {
-    fontSize: 14,
+
+  coincidencias: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F2ED',
+    borderRadius: 15,
+    padding: 15,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#DFE7E2',
+  },
+
+  coincidenciaIcono: {
+    width: 43,
+    height: 43,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  coincidenciaContenido: {
+    flex: 1,
+    gap: 4,
+  },
+
+  coincidenciaTitulo: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#243746',
+  },
+
+  coincidenciaDescripcion: {
+    fontSize: 12,
     color: '#526A67',
-  },
-  emergencia: {
-    borderColor: '#C43D45',
-  },
-  emergenciaTitulo: {
-    color: '#C43D45',
   },
 });

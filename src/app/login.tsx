@@ -23,6 +23,7 @@ export default function LoginScreen() {
   const [contrasena, setContrasena] = useState('');
   const [mostrarPassword, setMostrarPassword] = useState(false);
 
+  // Inicio de sesión temporal para probar la aplicación
   const iniciarSesion = () => {
     if (!correo.trim() || !contrasena) {
       Alert.alert(
@@ -43,9 +44,18 @@ export default function LoginScreen() {
       return;
     }
 
+    if (
+      __DEV__ &&
+      correo.trim().toLowerCase() === 'vecino@gmail.com' &&
+      contrasena === 'vecino123'
+    ) {
+      router.replace('/(tabs)/inicio');
+      return;
+    }
+
     Alert.alert(
-      'Inicio de sesión',
-      'Formulario validado. Falta conectarlo con el backend.'
+      'Datos incorrectos',
+      'El correo o la contraseña no son correctos.'
     );
   };
 
@@ -155,7 +165,7 @@ export default function LoginScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Iniciar sesión */}
+            {/* Botón iniciar sesión */}
             <TouchableOpacity
               style={styles.boton}
               activeOpacity={0.8}
@@ -180,18 +190,6 @@ export default function LoginScreen() {
               Regístrate
             </Text>
           </View>
-
-          {/* Acceso temporal para probar Inicio */}
-          {__DEV__ && (
-            <TouchableOpacity
-              style={styles.accesoPrueba}
-              onPress={() => router.replace('/(tabs)')}
-            >
-              <Text style={styles.accesoPruebaTexto}>
-                Ver Inicio (solo prueba)
-              </Text>
-            </TouchableOpacity>
-          )}
 
           {/* Pie de página */}
           <Text style={styles.footer}>

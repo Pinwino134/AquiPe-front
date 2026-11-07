@@ -1,50 +1,71 @@
 
+import React from 'react';
 import { NativeTabs } from 'expo-router/native-tabs';
-import { useColorScheme } from 'react-native';
-
-import { Colors } from '@/constants/theme';
+import { Platform } from 'react-native';
 
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
   return (
     <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
+      backgroundColor="#FFFFFF"
+      tintColor="#146C67"
+      labelVisibilityMode="labeled"
       labelStyle={{
-        selected: { color: colors.text },
+        default: {
+          color: '#526A67',
+          fontSize: 11,
+        },
+        selected: {
+          color: '#146C67',
+          fontSize: 11,
+          fontWeight: 'bold',
+        },
       }}
     >
-      {/* Pestaña Inicio */}
-      <NativeTabs.Trigger name="index">
+      {/* Inicio */}
+      <NativeTabs.Trigger name="inicio">
         <NativeTabs.Trigger.Label>
           Inicio
         </NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
+          sf="house.fill"
+          drawable="ic_menu_view"
         />
       </NativeTabs.Trigger>
 
-      {/* Pestaña Servicios */}
-      <NativeTabs.Trigger name="servicios">
+      {/* Publicar */}
+      <NativeTabs.Trigger name="publicar">
         <NativeTabs.Trigger.Label>
-          Servicios
+          Publicar
         </NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
+          sf="plus.square"
+          drawable="ic_input_add"
         />
       </NativeTabs.Trigger>
 
-      {/* Pestaña Perfil */}
+      {/* Notificaciones */}
+      <NativeTabs.Trigger name="notificaciones">
+        <NativeTabs.Trigger.Label>
+          Notificaciones
+        </NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          sf="bell"
+          drawable="ic_dialog_info"
+        />
+      </NativeTabs.Trigger>
+
+      {/* Perfil */}
       <NativeTabs.Trigger name="perfil">
         <NativeTabs.Trigger.Label>
           Perfil
         </NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="person.crop.circle" />
+        <NativeTabs.Trigger.Icon
+          sf="person.crop.circle"
+          drawable="ic_menu_myplaces"
+        />
       </NativeTabs.Trigger>
+       {/* Servicios: no aparece en el menú inferior */}
+            <NativeTabs.Trigger name="servicios" hidden />
     </NativeTabs>
   );
 }
