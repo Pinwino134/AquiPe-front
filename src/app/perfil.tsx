@@ -106,7 +106,17 @@ const aRecomendaciones = (lista: Publicacion[]): Recomendacion[] => {
     }));
 };
 
-const recursosIniciales = [
+type ItemRecurso = {
+  id: number;
+  remotoId?: string;
+  nombre: string;
+  descripcion: string;
+  cantidad: string;
+  disponible: boolean;
+  icono: string;
+};
+
+const recursosIniciales: ItemRecurso[] = [
   {
     id: 1,
     nombre: 'Escalera doméstica',
@@ -186,6 +196,25 @@ export default function Perfil() {
           if (activo) setRecomendaciones(aRecomendaciones(servicios));
         } catch {
           /* las recomendaciones son opcionales */
+        }
+
+        try {
+          const remotos = await Api.misRecursos();
+          if (activo && remotos.length > 0) {
+            setRecursos(
+              remotos.map((r, idx) => ({
+                id: idx + 1000,
+                remotoId: r.id,
+                nombre: r.nombre,
+                descripcion: r.descripcion ?? '',
+                cantidad: `${r.cantidad} ${r.unidad ?? 'unidad'}`,
+                disponible: r.disponible,
+                icono: '📦',
+              }))
+            );
+          }
+        } catch {
+          /* respaldo local */
         }
       })();
 
@@ -287,7 +316,7 @@ export default function Perfil() {
     }
   };
 
-  const agregarRecurso = () => {
+  const agregarRecurso = async () => {
     if (
       !recursoNombre.trim() ||
       !recursoDescripcion.trim() ||
@@ -300,9 +329,24 @@ export default function Perfil() {
       return;
     }
 
+    let remotoId: string | undefined;
+    try {
+      const numCant = parseInt(recursoCantidad.match(/\d+/)?.[0] ?? '1', 10) || 1;
+      const creado = await Api.crearRecurso({
+        nombre: recursoNombre.trim(),
+        descripcion: recursoDescripcion.trim(),
+        cantidad: numCant,
+        unidad: recursoCantidad.trim().slice(0, 30),
+      });
+      remotoId = creado.id;
+    } catch {
+      /* guardado local en modo offline */
+    }
+
     setRecursos((prev) => [
       {
         id: Date.now(),
+        remotoId,
         nombre: recursoNombre.trim(),
         descripcion: recursoDescripcion.trim(),
         cantidad: recursoCantidad.trim(),
@@ -318,18 +362,23 @@ export default function Perfil() {
     setNuevoRecursoVisible(false);
 
     Alert.alert(
-      'Recurso agregado',
-      'Tu recurso se agregó a la lista de demostración.'
+      'Recurso guardado',
+      remotoId
+        ? 'Tu recurso se guardó en tu cuenta y ya está disponible para la comunidad.'
+        : 'Recurso guardado localmente en Modo Sin Conexión.'
     );
   };
 
   const cambiarDisponibilidad = (id: number) => {
     setRecursos((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, disponible: !r.disponible }
-          : r
-      )
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const nuevoEstado = !r.disponible;
+        if (r.remotoId) {
+          Api.actualizarRecurso(r.remotoId, { disponible: nuevoEstado }).catch(() => {});
+        }
+        return { ...r, disponible: nuevoEstado };
+      })
     );
   };
 
