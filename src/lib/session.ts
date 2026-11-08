@@ -1,30 +1,44 @@
+
 import { useSyncExternalStore } from 'react';
 
 import type { Usuario } from './api';
 
-/**
- * Sesión en memoria. El backend (modo desarrollo) identifica al usuario con el
- * header X-User-Id, así que basta con guardar el usuario que devuelve /auth/login.
- * Al cerrar la app hay que volver a iniciar sesión.
- */
 let usuario: Usuario | null = null;
+let accessToken: string | null = null;
+
 const oyentes = new Set<() => void>();
 
 export const getUsuario = () => usuario;
 
+export const getAccessToken = () => accessToken;
+
 export function setUsuario(nuevo: Usuario | null) {
   usuario = nuevo;
+
+  // El login devuelve el token junto con los datos del usuario.
+  if (nuevo) {
+    accessToken =
+      (nuevo as Usuario & { access_token?: string }).access_token ??
+      accessToken;
+  } else {
+    accessToken = null;
+  }
+
   oyentes.forEach((fn) => fn());
 }
 
 const suscribir = (fn: () => void) => {
   oyentes.add(fn);
+
   return () => {
     oyentes.delete(fn);
   };
 };
 
-/** Devuelve el usuario con sesión iniciada (o null) y re-renderiza al cambiar. */
 export function useUsuario() {
-  return useSyncExternalStore(suscribir, getUsuario, getUsuario);
+  return useSyncExternalStore(
+    suscribir,
+    getUsuario,
+    getUsuario
+  );
 }
