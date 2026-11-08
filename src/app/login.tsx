@@ -166,6 +166,21 @@ export default function Login() {
               </Text>
             </Pressable>
           </View>
+          <Pressable
+            style={{
+              marginTop: 18,
+              padding: 14,
+              borderRadius: 14,
+              backgroundColor: '#FBE9E7',
+              alignItems: 'center',
+            }}
+            onPress={() => router.push('/emergencia-offline')}
+            accessibilityRole="button"
+          >
+            <Text style={{ color: '#D9402B', fontWeight: '800' }}>
+              🆘 Modo emergencia sin conexión
+            </Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -2,7 +2,7 @@ import * as Location from 'expo-location';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 
-import { Api, ApiError, type Publicacion, type TipoPublicacion } from './api';
+import { Api, ApiError, type Publicacion, type TipoPublicacion, type Zona } from './api';
 import { getUsuario, setUsuario } from './session';
 
 /** Centro de Arequipa: se usa si no hay GPS ni zona. */
@@ -106,6 +106,13 @@ export function mostrarError(e: unknown, titulo = 'No se pudo completar') {
     ]);
     return;
   }
+  if (e instanceof ApiError && e.status === 0) {
+    Alert.alert('Sin conexión', mensaje, [
+      { text: 'Aceptar' },
+      { text: 'Modo emergencia', onPress: () => router.push('/emergencia-offline') },
+    ]);
+    return;
+  }
   Alert.alert(titulo, mensaje);
 }
 
@@ -123,4 +130,40 @@ export async function zonaIdPorNombre(texto: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+let zonasCache: Zona[] | null = null;
+
+/** Zona del catálogo más cercana a un punto (máx. ~15 km); null si no hay ninguna. */
+export async function zonaMasCercana(lat: number, lng: number): Promise<Zona | null> {
+  try {
+    zonasCache ??= await Api.zonas();
+  } catch {
+    return null;
+  }
+  const k = Math.cos((lat * Math.PI) / 180);
+  let mejor: Zona | null = null;
+  let menor = Infinity;
+  for (const z of zonasCache) {
+    const d = (z.latitud - lat) ** 2 + ((z.longitud - lng) * k) ** 2;
+    if (d < menor) {
+      menor = d;
+      mejor = z;
+    }
+  }
+  return mejor && Math.sqrt(menor) < 0.14 ? mejor : null;
+}
+
+/** Texto legible para un punto del mapa (calle y distrito); si falla, las coordenadas. */
+export async function etiquetaUbicacion(lat: number, lng: number): Promise<string> {
+  try {
+    const [d] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    const texto = [d?.street ?? d?.name, d?.district ?? d?.subregion ?? d?.city]
+      .filter(Boolean)
+      .join(', ');
+    if (texto) return texto;
+  } catch {
+    /* sin geocodificación: se usan coordenadas */
+  }
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }

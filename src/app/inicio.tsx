@@ -73,6 +73,12 @@ const opciones = [
     color: '#F28B30',
     ruta: '/emergencias',
   },
+  {
+    nombre: 'Actividad',
+    icono: 'swap-horizontal',
+    color: '#7A5AF0',
+    ruta: '/actividad',
+  },
 ] as const;
 
 const tabs = [
@@ -127,6 +133,7 @@ export default function Inicio() {
 
   const [busqueda, setBusqueda] = useState('');
 
+  const [crearVisible, setCrearVisible] = useState(false);
   const [tutorialVisible, setTutorialVisible] =
     useState(false);
 
@@ -271,7 +278,7 @@ export default function Inicio() {
 
     // NUEVA NAVEGACIÓN AL FORMULARIO
     if (nombreTab === 'Publicar') {
-      router.push('/publicar');
+      setCrearVisible(true);
       return;
     }
 
@@ -780,6 +787,85 @@ export default function Inicio() {
       </View>
 
       {/* TUTORIAL */}
+      <Modal
+        visible={crearVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCrearVisible(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
+          onPress={() => setCrearVisible(false)}
+        >
+          <View
+            style={{
+              backgroundColor: '#fff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: 20,
+              paddingBottom: 34,
+              gap: 12,
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#243746' }}>
+              ¿Qué quieres publicar?
+            </Text>
+            {[
+              {
+                t: 'Crear servicio',
+                d: 'Ofrece tu trabajo con precio o busca un profesional',
+                i: 'construct' as const,
+                c: '#168BE0',
+                r: '/crear-servicio' as const,
+              },
+              {
+                t: 'Crear solicitud',
+                d: 'Pide ayuda a tus vecinos (herramientas, apoyo, donaciones)',
+                i: 'hand-left' as const,
+                c: '#F05A7E',
+                r: '/publicar' as const,
+              },
+            ].map((o) => (
+              <Pressable
+                key={o.t}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: 14,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: '#DFE7E2',
+                }}
+                onPress={() => {
+                  setCrearVisible(false);
+                  router.push(o.r);
+                }}
+                accessibilityRole="button"
+              >
+                <View
+                  style={{
+                    width: 46,
+                    height: 46,
+                    borderRadius: 14,
+                    backgroundColor: o.c + '22',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Ionicons name={o.i} size={24} color={o.c} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#243746' }}>{o.t}</Text>
+                  <Text style={{ fontSize: 13, color: '#526A67' }}>{o.d}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#526A67" />
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+
       <Modal
         visible={tutorialVisible}
         transparent

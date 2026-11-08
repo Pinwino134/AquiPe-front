@@ -17,6 +17,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  SelectorUbicacion,
+  type UbicacionElegida,
+} from '@/components/selector-ubicacion';
 import { Api, type Publicacion } from '@/lib/api';
 import {
   emojiCategoria,
@@ -84,6 +88,7 @@ export default function Favores() {
 
   const [titulo, setTitulo] = useState('');
   const [nombre, setNombre] = useState('');
+  const [ubic, setUbic] = useState<UbicacionElegida | null>(null);
 
   const filtrados = favores.filter(
     (favor) => favor.tipo === pestana
@@ -109,10 +114,14 @@ export default function Favores() {
           pestana === 'necesito' ? 'SOLICITA' : 'OFRECE',
         titulo: titulo.trim().slice(0, 80),
         descripcion: (nombre.trim() || titulo.trim()).slice(0, 1000),
+        ...(ubic
+          ? { zona_id: ubic.zonaId, latitud: ubic.latitude, longitud: ubic.longitude }
+          : {}),
       });
 
       setTitulo('');
       setNombre('');
+      setUbic(null);
       setModalVisible(false);
       await cargar();
     } catch (e) {
@@ -388,6 +397,10 @@ export default function Favores() {
               value={titulo}
               onChangeText={setTitulo}
             />
+
+            <Text style={styles.label}>Ubicación (opcional)</Text>
+
+            <SelectorUbicacion value={ubic} onChange={setUbic} />
 
             <Pressable
               style={styles.botonPublicar}

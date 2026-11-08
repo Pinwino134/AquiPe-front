@@ -86,6 +86,7 @@ export type Usuario = UsuarioResumen & {
 
 export type UsuarioPublico = UsuarioResumen & {
   zona: Zona | null;
+  perfil_proveedor: Usuario['perfil_proveedor'];
   telefono: string | null;
 };
 
@@ -106,11 +107,12 @@ export type Publicacion = {
     tipo_precio: TipoPrecio;
     monto: number | null;
     moneda: string;
-    modalidad: string;
+    modalidad: Modalidad;
     radio_km: number | null;
     disponibilidad: string | null;
     presupuesto_min: number | null;
     presupuesto_max: number | null;
+    fecha_requerida?: string | null;
     urgencia: Urgencia;
   } | null;
   emergencia: {
@@ -140,10 +142,41 @@ export type Respuesta = {
   publicacion_id: string;
   mensaje: string;
   precio_propuesto: number | null;
-  estado: 'ENVIADA' | 'ACEPTADA' | 'RECHAZADA' | 'RETIRADA';
+  estado: EstadoRespuesta;
   created_at: string;
   usuario: UsuarioResumen;
 };
+export type EstadoRespuesta = 'ENVIADA' | 'ACEPTADA' | 'RECHAZADA' | 'RETIRADA';
+export type EstadoAcuerdo = 'PROGRAMADO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+export type Modalidad = 'DOMICILIO' | 'VIRTUAL' | 'EN_LOCAL';
+
+export type RespuestaMia = Respuesta & {
+  publicacion: { id: string; tipo: TipoPublicacion; direccion: Direccion; titulo: string; estado: EstadoPublicacion };
+};
+
+export type Acuerdo = {
+  id: string;
+  estado: EstadoAcuerdo;
+  precio_acordado: number | null;
+  fecha_programada: string | null;
+  completado_at: string | null;
+  cancelado_at: string | null;
+  motivo_cancelacion: string | null;
+  created_at: string;
+  publicacion: { id: string; tipo: TipoPublicacion; direccion: Direccion; titulo: string; estado: EstadoPublicacion };
+  solicitante: UsuarioResumen;
+  proveedor: UsuarioResumen;
+};
+
+export type Resena = {
+  id: string;
+  acuerdo_id: string;
+  calificacion: number;
+  comentario: string | null;
+  created_at: string;
+  autor: UsuarioResumen;
+};
+
 export type Recurso = {
   id: string;
   usuario_id: string;
@@ -279,9 +312,13 @@ export const Api = {
     lat?: number;
     lng?: number;
     radio_km?: number;
+    zona_id?: number;
+    estado?: EstadoPublicacion;
+    autor_id?: string;
     limit?: number;
   } = {}) =>
     api<Publicacion[]>(`/publicaciones${query({ limit: 100, ...filtros })}`),
+  publicacion: (id: string) => api<Publicacion>(`/publicaciones/${id}`),
   misPublicaciones: () => api<Publicacion[]>('/publicaciones/mias'),
   crearPublicacion: (datos: NuevaPublicacion) =>
     api<Publicacion>('/publicaciones', { method: 'POST', json: datos }),
@@ -294,7 +331,35 @@ export const Api = {
       method: 'POST',
       json: { mensaje, precio_propuesto },
     }),
-// Recursos personales
+  editarPublicacion: (
+    id: string,
+    cambios: Partial<{ titulo: string; descripcion: string; estado: 'ABIERTA' | 'PAUSADA' | 'CANCELADA' }>
+  ) => api<Publicacion>(`/publicaciones/${id}`, { method: 'PATCH', json: cambios }),
+
+  // Proveedor y reseñas de usuarios
+  guardarProveedor: (d: { biografia?: string; anios_experiencia?: number; disponibilidad?: string }) =>
+    api<NonNullable<Usuario['perfil_proveedor']>>('/usuarios/me/proveedor', { method: 'PUT', json: d }),
+  resenasDeUsuario: (id: string, limit = 20, offset = 0) =>
+    api<Resena[]>(`/usuarios/${id}/resenas${query({ limit, offset })}`),
+
+  // Respuestas: gestión
+  respuestasDePublicacion: (id: string) => api<Respuesta[]>(`/publicaciones/${id}/respuestas`),
+  misRespuestas: (estado?: EstadoRespuesta) =>
+    api<RespuestaMia[]>(`/respuestas/mias${query({ estado })}`),
+  retirarRespuesta: (rid: string) => api<Respuesta>(`/respuestas/${rid}/retirar`, { method: 'POST' }),
+  rechazarRespuesta: (rid: string) => api<Respuesta>(`/respuestas/${rid}/rechazar`, { method: 'POST' }),
+  aceptarRespuesta: (rid: string, fecha_programada?: string) =>
+    api<Acuerdo>(`/respuestas/${rid}/aceptar`, { method: 'POST', json: { fecha_programada } }),
+
+  // Acuerdos y reseñas
+  misAcuerdos: (estado?: EstadoAcuerdo) => api<Acuerdo[]>(`/acuerdos/mios${query({ estado })}`),
+  acuerdo: (id: string) => api<Acuerdo>(`/acuerdos/${id}`),
+  cambiarEstadoAcuerdo: (id: string, estado: EstadoAcuerdo, motivo?: string) =>
+    api<Acuerdo>(`/acuerdos/${id}/estado`, { method: 'PATCH', json: { estado, motivo } }),
+  resenar: (acuerdoId: string, calificacion: number, comentario?: string) =>
+    api<Resena>(`/acuerdos/${acuerdoId}/resenas`, { method: 'POST', json: { calificacion, comentario } }),
+
+// Recursos personales (aún sin endpoint en el backend)
 misRecursos: () =>
   api<Recurso[]>('/recursos/mios'),
 

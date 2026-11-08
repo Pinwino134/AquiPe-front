@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -22,7 +23,8 @@ import MapView, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Api, type Publicacion } from '@/lib/api';
-import { mostrarError, zonaIdPorNombre } from '@/lib/ui';
+import { guardarPuestos } from '@/lib/offline';
+import { mostrarError, zonaMasCercana } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -51,6 +53,15 @@ type Registro = {
   cantidad?: string;
   ubicacion: Ubicacion;
 };
+
+const NUMEROS = [
+  { n: '105', t: 'Policía Nacional', i: 'shield' as const, c: '#168BE0' },
+  { n: '116', t: 'Bomberos', i: 'flame' as const, c: '#E5533D' },
+  { n: '106', t: 'SAMU (ambulancia)', i: 'medkit' as const, c: '#18B69A' },
+  { n: '115', t: 'Defensa Civil', i: 'warning' as const, c: '#F28B30' },
+  { n: '100', t: 'Violencia familiar', i: 'heart' as const, c: '#F05A7E' },
+  { n: '113', t: 'Salud (MINSA)', i: 'pulse' as const, c: '#7A5AF0' },
+];
 
 const REGION_INICIAL: Region = {
   latitude: -16.3989,
@@ -119,6 +130,19 @@ export default function Emergencias() {
         .map(aRegistro)
         .filter((r): r is Registro => r !== null);
 
+      // Copia local para el modo emergencia sin conexión
+      guardarPuestos(
+        registros.slice(0, 60).map((r) => ({
+          id: r.id,
+          titulo: r.titulo,
+          detalle: r.cantidad ?? '',
+          zona: r.zona,
+          tipo: r.tipo,
+          latitude: r.ubicacion.latitude,
+          longitude: r.ubicacion.longitude,
+        }))
+      );
+
       setRecursos(registros.filter((r) => r.tipo === 'ofrecer'));
       setReportes(registros.filter((r) => r.tipo === 'solicitar'));
     } catch (e) {
@@ -175,12 +199,11 @@ export default function Emergencias() {
   const guardar = async () => {
     if (
       !titulo.trim() ||
-      !descripcion.trim() ||
-      !zona.trim()
+      !descripcion.trim()
     ) {
       Alert.alert(
         'Campos incompletos',
-        'Completa el título, descripción y zona.'
+        'Completa el título y la descripción.'
       );
       return;
     }
@@ -207,17 +230,16 @@ export default function Emergencias() {
     setGuardando(true);
 
     try {
-      // La zona se escribe como texto libre: se busca en el catálogo
-      // y, si no coincide, se conserva dentro de la descripción.
-      const zonaId = await zonaIdPorNombre(zona);
+      // La zona se deduce del punto marcado en el mapa.
+      const zonaId = (
+        await zonaMasCercana(ubicacion.latitude, ubicacion.longitude)
+      )?.id ?? null;
 
       await Api.crearPublicacion({
         tipo: 'EMERGENCIA',
         direccion: accion === 'ofrecer' ? 'OFRECE' : 'SOLICITA',
         titulo: titulo.trim().slice(0, 80),
-        descripcion: (
-          zonaId ? descripcion.trim() : `${descripcion.trim()}\nZona: ${zona.trim()}`
-        ).slice(0, 1000),
+        descripcion: descripcion.trim().slice(0, 1000),
         zona_id: zonaId,
         latitud: ubicacion.latitude,
         longitud: ubicacion.longitude,
@@ -388,6 +410,30 @@ export default function Emergencias() {
           </Text>
         </View>
 
+        <Pressable
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            backgroundColor: '#D9402B',
+            borderRadius: 16,
+            padding: 14,
+            marginBottom: 14,
+          }}
+          onPress={() => router.push('/emergencia-offline')}
+          accessibilityRole="button"
+        >
+          <Ionicons name="cloud-offline-outline" size={24} color="#fff" />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>
+              Modo emergencia sin conexión
+            </Text>
+            <Text style={{ color: '#FFE3DE', fontSize: 12 }}>
+              SOS por SMS, primeros auxilios y contactos sin internet
+            </Text>
+          </View>
+        </Pressable>
+
         {/* Advertencia */}
         <View style={s.warning}>
           <Ionicons
@@ -455,6 +501,85 @@ export default function Emergencias() {
               Publica recursos y un puesto de ayuda
             </Text>
           </Pressable>
+        </View>
+
+        {/* Números de emergencia */}
+        <Text style={s.sectionTitle}>Números de emergencia</Text>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
+          {NUMEROS.map((x) => (
+            <Pressable
+              key={x.n}
+              style={{
+                width: '48%',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                backgroundColor: '#fff',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#DFE7E2',
+                padding: 12,
+              }}
+              onPress={() => Linking.openURL(`tel:${x.n}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Llamar al ${x.n}, ${x.t}`}
+            >
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  backgroundColor: x.c + '22',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name={x.i} size={20} color={x.c} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: x.c }}>{x.n}</Text>
+                <Text style={{ fontSize: 11, color: '#526A67' }} numberOfLines={1}>
+                  {x.t}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Mapa general */}
+        <Text style={s.sectionTitle}>Mapa de emergencias</Text>
+
+        <View style={{ height: 210, borderRadius: 18, overflow: 'hidden', marginBottom: 8 }}>
+          <MapView
+            style={{ flex: 1 }}
+            initialRegion={REGION_INICIAL}
+            showsUserLocation
+          >
+            {reportes.map((r) => (
+              <Marker
+                key={r.id}
+                coordinate={r.ubicacion}
+                pinColor="#E5533D"
+                title={r.titulo}
+                description={r.zona}
+              />
+            ))}
+            {recursos.map((r) => (
+              <Marker
+                key={r.id}
+                coordinate={r.ubicacion}
+                pinColor="#18B69A"
+                title={r.titulo}
+                description={r.cantidad ?? r.zona}
+              />
+            ))}
+          </MapView>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 16, marginBottom: 22 }}>
+          <Text style={{ fontSize: 12, color: '#526A67' }}>🔴 Solicitudes de ayuda</Text>
+          <Text style={{ fontSize: 12, color: '#526A67' }}>🟢 Recursos y puestos</Text>
         </View>
 
         {/* Consultas */}
@@ -607,18 +732,6 @@ export default function Emergencias() {
                   />
                 </>
               )}
-
-              <Text style={s.label}>
-                Zona o sector
-              </Text>
-
-              <TextInput
-                style={s.input}
-                value={zona}
-                onChangeText={setZona}
-                placeholder="Ej. Cercado, Yanahuara..."
-                placeholderTextColor={C.secundario}
-              />
 
               <Text style={s.label}>
                 Ubicación en el mapa

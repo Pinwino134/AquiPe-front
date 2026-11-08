@@ -25,8 +25,8 @@ export function setUsuario(nuevo: Usuario | null) {
   }
 
   oyentes.forEach((fn) => fn());
-}
 
+}
 const suscribir = (fn: () => void) => {
   oyentes.add(fn);
 

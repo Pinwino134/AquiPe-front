@@ -15,13 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Api } from '@/lib/api';
-import { getUsuario } from '@/lib/session';
 import {
-  mostrarError,
-  obtenerUbicacion,
-  zonaIdPorNombre,
-} from '@/lib/ui';
+  SelectorUbicacion,
+  type UbicacionElegida,
+} from '@/components/selector-ubicacion';
+import { Api } from '@/lib/api';
+import { mostrarError } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -64,7 +63,7 @@ export default function Publicar() {
     useState<Categoria | null>(null);
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
-  const [zona, setZona] = useState('');
+  const [ubic, setUbic] = useState<UbicacionElegida | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   const siguiente = () => {
@@ -89,10 +88,10 @@ export default function Publicar() {
         return;
       }
 
-      if (!zona.trim()) {
+      if (!ubic) {
         Alert.alert(
-          'Falta la zona',
-          'Indica el barrio o zona de tu solicitud.'
+          'Falta la ubicación',
+          'Marca en el mapa dónde necesitas la ayuda.'
         );
         return;
       }
@@ -120,27 +119,17 @@ export default function Publicar() {
       const categoriaId =
         categoriasApi.find((c) => c.nombre === categoria)?.id ?? null;
 
-      const zonaId = await zonaIdPorNombre(zona);
-
-      // Ubicación: la del perfil / zona la pone el backend. Solo si el usuario
-      // no tiene ninguna, se usa el GPS como último recurso.
-      const sinUbicacion =
-        getUsuario()?.latitud == null && zonaId == null;
-      const pos = sinUbicacion ? await obtenerUbicacion() : null;
+      if (!ubic) return;
 
       await Api.crearPublicacion({
         tipo: 'FAVOR',
         direccion: 'SOLICITA',
         categoria_id: categoriaId,
         titulo: titulo.trim(),
-        descripcion: (
-          zonaId
-            ? descripcion.trim()
-            : `${descripcion.trim()}\nZona: ${zona.trim()}`
-        ).slice(0, 1000),
-        zona_id: zonaId,
-        latitud: pos?.latitude ?? null,
-        longitud: pos?.longitude ?? null,
+        descripcion: descripcion.trim().slice(0, 1000),
+        zona_id: ubic.zonaId,
+        latitud: ubic.latitude,
+        longitud: ubic.longitude,
       });
 
       Alert.alert(
@@ -347,25 +336,10 @@ export default function Publicar() {
               />
 
               <Text style={s.label}>
-                Barrio o zona
+                Ubicación (elige en el mapa)
               </Text>
 
-              <View style={s.locationInput}>
-                <Ionicons
-                  name="location-outline"
-                  size={20}
-                  color={C.principal}
-                />
-
-                <TextInput
-                  style={s.locationText}
-                  placeholder="Ej. Mi barrio"
-                  placeholderTextColor={C.secundario}
-                  value={zona}
-                  onChangeText={setZona}
-                  maxLength={100}
-                />
-              </View>
+              <SelectorUbicacion value={ubic} onChange={setUbic} />
 
               <View style={s.infoBox}>
                 <Ionicons
@@ -432,7 +406,7 @@ export default function Publicar() {
                     color={C.principal}
                   />
                   <Text style={s.summaryValue}>
-                    {zona}
+                    {ubic?.etiqueta}
                   </Text>
                 </View>
 

@@ -203,9 +203,29 @@ export default function Servicios() {
           />
         </Pressable>
 
-        <Text style={styles.titulo}>
+        <Text style={[styles.titulo, { flex: 1 }]}>
           Servicios de mi barrio
         </Text>
+
+        <Pressable
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            backgroundColor: C.principal,
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            borderRadius: 14,
+          }}
+          onPress={() => router.push('/crear-servicio')}
+          accessibilityRole="button"
+          accessibilityLabel="Publicar un servicio"
+        >
+          <Ionicons name="add" size={18} color={C.blanco} />
+          <Text style={{ color: C.blanco, fontWeight: '800', fontSize: 13 }}>
+            Publicar
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.buscador}>
@@ -335,12 +355,22 @@ export default function Servicios() {
                 <Text
                   style={styles.nombreServicio}
                   numberOfLines={2}
+                  onPress={() =>
+                    router.push({ pathname: '/publicacion', params: { id: servicio.id } })
+                  }
+                  accessibilityRole="link"
                 >
                   {servicio.nombre}
                 </Text>
 
-                <Text style={styles.profesional}>
-                  {servicio.profesional}
+                <Text
+                  style={styles.profesional}
+                  onPress={() =>
+                    router.push({ pathname: '/usuario', params: { id: servicio.autorId } })
+                  }
+                  accessibilityRole="link"
+                >
+                  {servicio.profesional} ›
                 </Text>
 
                 <View style={styles.calificacion}>
