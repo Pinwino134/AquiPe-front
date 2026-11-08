@@ -64,19 +64,16 @@ export default function HeaderInicio({
       <View style={styles.topBubbleMedium} />
       <View style={styles.topBubbleSmall} />
 
-      {/* Logo y acciones */}
+      {/* Saludo y acciones en la misma fila */}
       <View style={styles.topRow}>
-        <View style={styles.logoContainer}>
-          <Text
-            style={styles.logoText}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            AquiPe
-          </Text>
-
-          <View style={styles.logoDot} />
-        </View>
+        <Text
+          style={styles.greeting}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {t.saludo}, {nombreUsuario}
+        </Text>
 
         <View style={styles.topActions}>
           {/* Selector de Idioma: ES / QU (Quechua) / EN */}
@@ -153,11 +150,6 @@ export default function HeaderInicio({
         </View>
       </View>
 
-      {/* Saludo */}
-      <Text style={styles.greeting}>
-        {t.saludo}, {nombreUsuario}
-      </Text>
-
       {/* Banner de Modo Offline activo */}
       {offline && (
         <View style={styles.offlineBanner}>
@@ -210,6 +202,9 @@ export default function HeaderInicio({
           </Pressable>
         )}
       </View>
+
+      {/* El contenido claro inferior sobresale con curvas hacia abajo en los costados. */}
+      <View pointerEvents="none" style={styles.panelInferiorCurvo} />
     </View>
   );
 }
@@ -219,8 +214,19 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary,
     paddingHorizontal: 22,
     paddingTop: 16,
-    paddingBottom: 22,
+    paddingBottom: 42,
     overflow: 'hidden',
+  },
+
+  panelInferiorCurvo: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 20,
+    backgroundColor: '#F6F7F3',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
 
   topBubbleLarge: {
@@ -260,30 +266,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    minWidth: 0,
-  },
-
-  logoText: {
-    fontSize: 19,
-    fontWeight: '900',
-    color: C.white,
-    letterSpacing: -0.5,
-    flexShrink: 1,
-  },
-
-  logoDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: C.primaryLight,
-    marginLeft: 4,
-    marginTop: 10,
   },
 
   topActions: {
@@ -337,10 +319,11 @@ const styles = StyleSheet.create({
   },
 
   greeting: {
-    fontSize: 21,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 16,
     fontWeight: '800',
     color: C.white,
-    marginTop: 16,
   },
 
   offlineBanner: {

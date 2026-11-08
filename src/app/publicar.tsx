@@ -14,7 +14,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import TutorialModal from '@/components/inicio/TutorialModal';
+
 import { Api } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import { getUsuario } from '@/lib/session';
 import {
   mostrarError,
@@ -31,6 +34,14 @@ const C = {
   blanco: '#FFFFFF',
   borde: '#DFE7E2',
 };
+
+// Misma barra inferior de Inicio y Perfil, con Publicar seleccionado.
+const tabsPublicar = [
+  { nombre: 'Inicio', key: 'inicio', icono: 'home-outline' },
+  { nombre: 'Publicar', key: 'publicar', icono: 'add-circle-outline' },
+  { nombre: 'Tutorial', key: 'tutorial', icono: 'book-outline' },
+  { nombre: 'Perfil', key: 'perfil', icono: 'person-outline' },
+] as const;
 
 type ModoPublicacion =
   | 'OFRECER_SERVICIO'
@@ -145,6 +156,8 @@ const PLANTILLAS_RAPIDAS: Record<
 
 export default function Publicar() {
   const usuario = getUsuario();
+  const { t } = useI18n();
+  const [tutorialVisible, setTutorialVisible] = useState(false);
   const [paso, setPaso] = useState(1);
   const [modo, setModo] = useState<ModoPublicacion>('OFRECER_SERVICIO');
   const [categoria, setCategoria] = useState<string | null>(null);
@@ -744,6 +757,50 @@ export default function Publicar() {
           </Text>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Barra inferior: mismo diseño que Inicio y Perfil, con Publicar activo */}
+      <View style={s.navContainer}>
+        <View style={s.nav}>
+          {tabsPublicar.map((tab) => {
+            const activa = tab.nombre === 'Publicar';
+            const etiqueta = t[tab.key];
+
+            return (
+              <Pressable
+                key={tab.nombre}
+                style={[s.navItem, activa && s.navItemActive]}
+                onPress={() => {
+                  if (tab.nombre === 'Inicio') {
+                    router.replace('/inicio');
+                  } else if (tab.nombre === 'Tutorial') {
+                    setTutorialVisible(true);
+                  } else if (tab.nombre === 'Perfil') {
+                    router.push('/perfil');
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={etiqueta}
+                accessibilityState={{ selected: activa }}
+              >
+                <Ionicons
+                  name={tab.icono}
+                  size={24}
+                  color={activa ? C.blanco : C.secundario}
+                />
+                {activa && (
+                  <Text style={s.navActiveText}>{etiqueta}</Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Tutorial visual compartido con Inicio */}
+      <TutorialModal
+        visible={tutorialVisible}
+        onClose={() => setTutorialVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1184,4 +1241,164 @@ const s = StyleSheet.create({
     color: C.secundario,
     marginTop: 9,
   },
+
+  // Estilos idénticos a components/inicio/BarraNavegacion.tsx.
+  navContainer: {
+    backgroundColor: '#F6F7F3',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  nav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.verdeClaro,
+    borderRadius: 40,
+    padding: 6,
+    minHeight: 65,
+    elevation: 5,
+    shadowColor: C.texto,
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+  },
+  navItem: {
+    flex: 1,
+    height: 53,
+    borderRadius: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  navItemActive: {
+    flex: 2,
+    backgroundColor: C.principal,
+  },
+  navActiveText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.blanco,
+  },
+
+
+  tutorialOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(36,55,70,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+
+  tutorialCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: C.fondo,
+    borderRadius: 26,
+    paddingHorizontal: 24,
+    paddingTop: 30,
+    paddingBottom: 25,
+    borderWidth: 1,
+    borderColor: C.borde,
+  },
+
+  tutorialClose: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
+  tutorialTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: C.texto,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+
+  tutorialIllustration: {
+    height: 145,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+
+  tutorialCircle: {
+    width: 135,
+    height: 135,
+    borderRadius: 68,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  tutorialCheck: {
+    position: 'absolute',
+    right: '25%',
+    bottom: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: C.blanco,
+  },
+
+  tutorialStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    marginBottom: 17,
+  },
+
+  tutorialNumber: {
+    width: 29,
+    height: 29,
+    borderRadius: 15,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  tutorialNumberText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: C.blanco,
+  },
+
+  tutorialStepText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.texto,
+    lineHeight: 20,
+  },
+
+  tutorialButton: {
+    height: 49,
+    borderRadius: 14,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+
+  tutorialButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.blanco,
+  },
+
 });

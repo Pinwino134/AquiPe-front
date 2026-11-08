@@ -17,7 +17,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import TutorialModal from '@/components/inicio/TutorialModal';
+
 import { Api, type Publicacion } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import { setUsuario, useUsuario } from '@/lib/session';
 import {
   ESTADO_TEXTO,
@@ -35,6 +38,14 @@ const C = {
   blanco: '#FFFFFF',
   borde: '#DFE7E2',
 };
+
+// Misma estructura y orden que la barra inferior de Inicio.
+const tabsPerfil = [
+  { nombre: 'Inicio', key: 'inicio', icono: 'home-outline' },
+  { nombre: 'Publicar', key: 'publicar', icono: 'add-circle-outline' },
+  { nombre: 'Tutorial', key: 'tutorial', icono: 'book-outline' },
+  { nombre: 'Perfil', key: 'perfil', icono: 'person-outline' },
+] as const;
 
 type Seccion =
   | 'publicaciones'
@@ -145,6 +156,7 @@ const recursosIniciales: ItemRecurso[] = [
 
 export default function Perfil() {
   const usuario = useUsuario();
+  const { t } = useI18n();
 
   const [seccion, setSeccion] =
     useState<Seccion>(null);
@@ -978,77 +990,48 @@ export default function Perfil() {
               />
 
               <Text style={s.logoutText}>
-                Volver a iniciar sesión
+                Cerrar sesión
               </Text>
             </Pressable>
           </ScrollView>
 
-          {/* Navegación inferior */}
-          <View style={s.nav}>
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                router.replace('/inicio')
-              }
-            >
-              <Ionicons
-                name="home-outline"
-                size={23}
-                color={C.secundario}
-              />
+          {/* Navegación inferior: mismo diseño que Inicio, con Perfil activo */}
+          <View style={s.navContainer}>
+            <View style={s.nav}>
+              {tabsPerfil.map((tab) => {
+                const activa = tab.nombre === 'Perfil';
+                const etiqueta = t[tab.key];
 
-              <Text style={s.navLabel}>
-                Inicio
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                Alert.alert(
-                  'Publicar',
-                  'Puedes publicar servicios y favores desde las secciones correspondientes.'
-                )
-              }
-            >
-              <Ionicons
-                name="add-circle-outline"
-                size={23}
-                color={C.secundario}
-              />
-
-              <Text style={s.navLabel}>
-                Publicar
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                setTutorialVisible(true)
-              }
-            >
-              <Ionicons
-                name="book-outline"
-                size={23}
-                color={C.secundario}
-              />
-
-              <Text style={s.navLabel}>
-                Tutorial
-              </Text>
-            </Pressable>
-
-            <View style={s.navItem}>
-              <Ionicons
-                name="person"
-                size={23}
-                color={C.principal}
-              />
-
-              <Text style={s.navLabelActive}>
-                Perfil
-              </Text>
+                return (
+                  <Pressable
+                    key={tab.nombre}
+                    style={[s.navItem, activa && s.navItemActive]}
+                    onPress={() => {
+                      if (tab.nombre === 'Inicio') {
+                        router.replace('/inicio');
+                      } else if (tab.nombre === 'Publicar') {
+                        router.push('/publicar');
+                      } else if (tab.nombre === 'Tutorial') {
+                        setTutorialVisible(true);
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={etiqueta}
+                    accessibilityState={{ selected: activa }}
+                  >
+                    <Ionicons
+                      name={tab.icono}
+                      size={24}
+                      color={activa ? C.blanco : C.secundario}
+                    />
+                    {activa && (
+                      <Text style={s.navActiveText}>
+                        {etiqueta}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         </>
@@ -1269,86 +1252,11 @@ export default function Perfil() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Tutorial */}
-      <Modal
+      {/* Tutorial visual compartido con Inicio */}
+      <TutorialModal
         visible={tutorialVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() =>
-          setTutorialVisible(false)
-        }
-      >
-        <View style={s.tutorialOverlay}>
-          <View style={s.tutorialCard}>
-            <Pressable
-              style={s.tutorialClose}
-              onPress={() =>
-                setTutorialVisible(false)
-              }
-            >
-              <Ionicons
-                name="close"
-                size={21}
-                color={C.secundario}
-              />
-            </Pressable>
-
-            <Text style={s.tutorialTitle}>
-              Tu comunidad, tu apoyo
-            </Text>
-
-            <View style={s.tutorialIllustration}>
-              <View style={s.tutorialCircle}>
-                <Ionicons
-                  name="people-outline"
-                  size={65}
-                  color={C.principal}
-                />
-              </View>
-
-              <View style={s.tutorialCheck}>
-                <Ionicons
-                  name="checkmark"
-                  size={22}
-                  color={C.blanco}
-                />
-              </View>
-            </View>
-
-            {[
-              'Busca servicios de tu barrio',
-              'Publica o responde favores',
-              'Activa el modo emergencia cuando lo necesites',
-            ].map((paso, index) => (
-              <View
-                key={index}
-                style={s.tutorialStep}
-              >
-                <View style={s.tutorialNumber}>
-                  <Text style={s.tutorialNumberText}>
-                    {index + 1}
-                  </Text>
-                </View>
-
-                <Text style={s.tutorialStepText}>
-                  {paso}
-                </Text>
-              </View>
-            ))}
-
-            <Pressable
-              style={s.tutorialButton}
-              onPress={() =>
-                setTutorialVisible(false)
-              }
-            >
-              <Text style={s.tutorialButtonText}>
-                Entendido
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setTutorialVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1551,30 +1459,46 @@ const s = StyleSheet.create({
     fontSize: 14,
   },
 
+  // Estilos idénticos a components/inicio/BarraNavegacion.tsx.
+  navContainer: {
+    backgroundColor: '#F6F7F3',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
   nav: {
     flexDirection: 'row',
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: C.borde,
-    backgroundColor: C.blanco,
+    alignItems: 'center',
+    backgroundColor: C.verdeClaro,
+    borderRadius: 40,
+    padding: 6,
+    minHeight: 65,
+    elevation: 5,
+    shadowColor: C.texto,
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
   },
-
   navItem: {
     flex: 1,
+    height: 53,
+    borderRadius: 30,
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    gap: 7,
   },
-
-  navLabel: {
-    fontSize: 11,
-    color: C.secundario,
+  navItemActive: {
+    flex: 2,
+    backgroundColor: C.principal,
   },
-
-  navLabelActive: {
-    fontSize: 11,
-    color: C.principal,
+  navActiveText: {
+    fontSize: 13,
     fontWeight: '800',
+    color: C.blanco,
   },
 
   descripcionSeccion: {

@@ -370,7 +370,7 @@ const s = StyleSheet.create({
 
   content: {
     paddingHorizontal: 22,
-    paddingTop: 25,
+    paddingTop: 10,
     paddingBottom: 35,
   },
 });
