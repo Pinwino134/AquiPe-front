@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import { getUsuario } from './session';
+import { getUsuario, getAccessToken } from './session';
 
 /* ------------------------------------------------------------------ */
 /* URL del backend                                                     */
@@ -67,6 +67,7 @@ export type UsuarioResumen = {
 };
 
 export type Usuario = UsuarioResumen & {
+    access_token?: string;
   correo: string;
   telefono: string;
   zona: Zona | null;
@@ -143,6 +144,25 @@ export type Respuesta = {
   created_at: string;
   usuario: UsuarioResumen;
 };
+export type Recurso = {
+  id: string;
+  usuario_id: string;
+  nombre: string;
+  descripcion: string;
+  cantidad: number;
+  unidad: string;
+  disponible: boolean;
+  created_at: string;
+};
+
+export type NuevoRecurso = {
+  nombre: string;
+  descripcion: string;
+  cantidad: number;
+  unidad: string;
+  disponible: boolean;
+
+};
 
 /* ------------------------------------------------------------------ */
 /* Cliente HTTP                                                        */
@@ -176,6 +196,7 @@ export async function api<T = unknown>(
 ): Promise<T> {
   const { json, headers, ...resto } = init;
   const usuario = getUsuario();
+  const token = getAccessToken();
 
   let respuesta: Response;
   try {
@@ -183,7 +204,11 @@ export async function api<T = unknown>(
       ...resto,
       headers: {
         'Content-Type': 'application/json',
-        ...(usuario ? { 'X-User-Id': usuario.id } : {}),
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : usuario
+            ? { 'X-User-Id': usuario.id }
+            : {}),
         ...(headers as Record<string, string> | undefined),
       },
       body: json !== undefined ? JSON.stringify(json) : resto.body,
@@ -269,4 +294,27 @@ export const Api = {
       method: 'POST',
       json: { mensaje, precio_propuesto },
     }),
+// Recursos personales
+misRecursos: () =>
+  api<Recurso[]>('/recursos/mios'),
+
+crearRecurso: (datos: NuevoRecurso) =>
+  api<Recurso>('/recursos', {
+    method: 'POST',
+    json: datos,
+  }),
+
+actualizarRecurso: (
+  id: string,
+  cambios: Partial<NuevoRecurso>
+) =>
+  api<Recurso>(`/recursos/${id}`, {
+    method: 'PATCH',
+    json: cambios,
+  }),
+
+eliminarRecurso: (id: string) =>
+  api<null>(`/recursos/${id}`, {
+    method: 'DELETE',
+  }),
 };

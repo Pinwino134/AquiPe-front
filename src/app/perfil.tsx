@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Api, type Publicacion } from '@/lib/api';
+import { Api, type Publicacion, type Recurso } from '@/lib/api';
 import { setUsuario, useUsuario } from '@/lib/session';
 import {
   ESTADO_TEXTO,
@@ -106,33 +106,6 @@ const aRecomendaciones = (lista: Publicacion[]): Recomendacion[] => {
     }));
 };
 
-const recursosIniciales = [
-  {
-    id: 1,
-    nombre: 'Escalera doméstica',
-    descripcion: 'Escalera de aluminio disponible para préstamo.',
-    cantidad: '1 unidad',
-    disponible: true,
-    icono: '🪜',
-  },
-  {
-    id: 2,
-    nombre: 'Herramientas básicas',
-    descripcion: 'Martillo, destornilladores y alicates.',
-    cantidad: '1 kit',
-    disponible: true,
-    icono: '🧰',
-  },
-  {
-    id: 3,
-    nombre: 'Libros escolares',
-    descripcion: 'Material de consulta para estudiantes.',
-    cantidad: '5 libros',
-    disponible: false,
-    icono: '📚',
-  },
-];
-
 export default function Perfil() {
   const usuario = useUsuario();
 
@@ -161,7 +134,7 @@ export default function Perfil() {
     useState<Recomendacion[]>([]);
 
   const [recursos, setRecursos] =
-    useState(recursosIniciales);
+    useState<Recurso[]>([]);
 
   const [publicaciones, setPublicaciones] =
     useState<ItemPublicacion[]>([]);
@@ -171,21 +144,44 @@ export default function Perfil() {
       let activo = true;
 
       (async () => {
+        // Cargar recursos desde PostgreSQL
         try {
-          const mias = await Api.misPublicaciones();
-          if (activo) setPublicaciones(mias.map(aItem));
+          const misRecursos = await Api.misRecursos();
+
+          if (activo) {
+            setRecursos(misRecursos);
+          }
         } catch (e) {
-          if (activo) mostrarError(e, 'No se pudieron cargar tus publicaciones');
+          if (activo) {
+            mostrarError(e, 'No se pudieron cargar tus recursos');
+          }
         }
 
+        // Cargar mis publicaciones
+        try {
+          const mias = await Api.misPublicaciones();
+
+          if (activo) {
+            setPublicaciones(mias.map(aItem));
+          }
+        } catch (e) {
+          if (activo) {
+            mostrarError(e, 'No se pudieron cargar tus publicaciones');
+          }
+        }
+
+        // Cargar recomendaciones
         try {
           const servicios = await Api.publicaciones({
             tipo: 'SERVICIO',
             direccion: 'OFRECE',
           });
-          if (activo) setRecomendaciones(aRecomendaciones(servicios));
+
+          if (activo) {
+            setRecomendaciones(aRecomendaciones(servicios));
+          }
         } catch {
-          /* las recomendaciones son opcionales */
+          /* Las recomendaciones son opcionales */
         }
       })();
 
@@ -232,6 +228,8 @@ export default function Perfil() {
   const [recursoCantidad, setRecursoCantidad] =
     useState('');
 
+  const guardandoRecursoRef = useRef(false);
+  const [guardandoRecurso, setGuardandoRecurso] = useState(false);
   const abrirEditarPerfil = () => {
     setNombreTemporal(nombre);
     setTelefonoTemporal(telefono);
@@ -287,30 +285,46 @@ export default function Perfil() {
     }
   };
 
-  const agregarRecurso = () => {
-    if (
-      !recursoNombre.trim() ||
-      !recursoDescripcion.trim() ||
-      !recursoCantidad.trim()
-    ) {
-      Alert.alert(
-        'Campos incompletos',
-        'Completa los datos del recurso.'
-      );
-      return;
-    }
 
-    setRecursos((prev) => [
-      {
-        id: Date.now(),
-        nombre: recursoNombre.trim(),
-        descripcion: recursoDescripcion.trim(),
-        cantidad: recursoCantidad.trim(),
-        disponible: true,
-        icono: '📦',
-      },
-      ...prev,
-    ]);
+
+const agregarRecurso = async () => {
+  if (guardandoRecursoRef.current) return;
+
+  if (
+    !recursoNombre.trim() ||
+    !recursoDescripcion.trim() ||
+    !recursoCantidad.trim()
+  ) {
+    Alert.alert(
+      'Campos incompletos',
+      'Completa los datos del recurso.'
+    );
+    return;
+  }
+
+  const partes = recursoCantidad.trim().match(/^(\d+)\s*(.*)$/);
+
+  if (!partes || Number(partes[1]) <= 0) {
+    Alert.alert(
+      'Cantidad inválida',
+      'Escribe una cantidad válida. Ejemplo: 2 unidades.'
+    );
+    return;
+  }
+
+  guardandoRecursoRef.current = true;
+  setGuardandoRecurso(true);
+
+  try {
+    const nuevoRecurso = await Api.crearRecurso({
+      nombre: recursoNombre.trim(),
+      descripcion: recursoDescripcion.trim(),
+      cantidad: Number(partes[1]),
+      unidad: partes[2].trim() || 'unidad',
+      disponible: true,
+    });
+
+    setRecursos((prev) => [nuevoRecurso, ...prev]);
 
     setRecursoNombre('');
     setRecursoDescripcion('');
@@ -319,19 +333,78 @@ export default function Perfil() {
 
     Alert.alert(
       'Recurso agregado',
-      'Tu recurso se agregó a la lista de demostración.'
+      'Tu recurso se guardó correctamente.'
     );
-  };
+  } catch (e) {
+    mostrarError(e, 'No se pudo guardar el recurso');
+  } finally {
+    guardandoRecursoRef.current = false;
+    setGuardandoRecurso(false);
+  }
+};
 
-  const cambiarDisponibilidad = (id: number) => {
+
+
+
+
+const cambiarDisponibilidad = async (id: string) => {
+  const recurso = recursos.find((r) => r.id === id);
+
+  if (!recurso) return;
+
+  const nuevoEstado = !recurso.disponible;
+
+  try {
+    const actualizado = await Api.actualizarRecurso(id, {
+      disponible: nuevoEstado,
+    });
+
     setRecursos((prev) =>
       prev.map((r) =>
-        r.id === id
-          ? { ...r, disponible: !r.disponible }
-          : r
+        r.id === id ? actualizado : r
       )
     );
-  };
+  } catch (e) {
+    mostrarError(e, 'No se pudo actualizar el recurso');
+  }
+};
+
+const eliminarRecurso = (id: string) => {
+  Alert.alert(
+    'Eliminar recurso',
+    '¿Estás seguro de que deseas eliminar este recurso?',
+    [
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await Api.eliminarRecurso(id);
+
+            setRecursos((prev) =>
+              prev.filter((recurso) => recurso.id !== id)
+            );
+
+            Alert.alert(
+              'Éxito',
+              'El recurso se eliminó correctamente.'
+            );
+          } catch (error) {
+            Alert.alert(
+              'Error',
+              'No se pudo eliminar el recurso.'
+            );
+          }
+        },
+      },
+    ]
+  );
+};
+
 
   const eliminarPublicacion = (id: string) => {
     Alert.alert(
@@ -557,7 +630,7 @@ export default function Perfil() {
           <View style={s.tarjetaFila}>
             <View style={s.iconoTarjeta}>
               <Text style={s.emoji}>
-                {item.icono}
+                {'📦'}
               </Text>
             </View>
 
@@ -567,7 +640,7 @@ export default function Perfil() {
               </Text>
 
               <Text style={s.tarjetaSubtitulo}>
-                {item.cantidad}
+                {item.cantidad} {item.unidad}
               </Text>
             </View>
           </View>
@@ -596,6 +669,21 @@ export default function Perfil() {
               }}
               thumbColor={C.blanco}
             />
+            <Pressable
+              onPress={() => eliminarRecurso(item.id)}
+              style={s.eliminarBoton}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={17}
+                color="#DC2626"
+              />
+              <Text style={{ color: '#DC2626', fontWeight: '700' }}>
+                Eliminar
+              </Text>
+            </Pressable>
+
+
           </View>
         </View>
       ))}
@@ -818,7 +906,7 @@ export default function Perfil() {
                 </Text>
 
                 <Text style={s.status}>
-                  Vecino activo · Perfil de ejemplo
+                  Vecino activo · Comunidad AquiPe
                 </Text>
 
                 <View style={s.zonaPerfil}>
@@ -1208,11 +1296,15 @@ export default function Perfil() {
               />
 
               <Pressable
-                style={s.botonPrincipal}
+                style={[
+                  s.botonPrincipal,
+                  guardandoRecurso && { opacity: 0.5 },
+                ]}
                 onPress={agregarRecurso}
+                disabled={guardandoRecurso}
               >
                 <Text style={s.botonPrincipalTexto}>
-                  Guardar recurso
+                  {guardandoRecurso ? 'Guardando...' : 'Guardar recurso'}
                 </Text>
               </Pressable>
             </View>
