@@ -1,11 +1,13 @@
-
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,12 +17,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Api, type Publicacion } from '@/lib/api';
+import { Api, type Publicacion, type Resena } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
+import { useEstadoOffline } from '@/lib/offline';
 import {
   distanciaTexto,
   emojiCategoria,
   mostrarError,
   obtenerUbicacion,
+  tiempoRelativo,
 } from '@/lib/ui';
 
 const C = {
@@ -31,14 +36,77 @@ const C = {
   secundario: '#526A67',
   blanco: '#FFFFFF',
   borde: '#DFE7E2',
+  dorado: '#F59E0B',
+  doradoClaro: '#FEF3C7',
 };
+
+const ETIQUETAS_VISTO_BUENO = [
+  '✓ Visto Bueno Vecinal',
+  '💰 Precio justo',
+  '⚡ Atención rápida',
+  '🛡️ Vecino de confianza',
+  '🚨 Apoya en emergencias',
+];
+
+const PLANTILLAS_OFICIOS = [
+  {
+    chip: '🔧 Gasfitería',
+    titulo: 'Gasfitero del barrio · Fugas y tuberías',
+    descripcion: 'Reparación de tuberías, grifería, tanques de agua e instalaciones sanitarias.',
+    categoria: 'Hogar',
+    precio: '40',
+    tipoPrecio: 'FIJO' as const,
+  },
+  {
+    chip: '⚡ Electricidad',
+    titulo: 'Electricista a domicilio y emergencias',
+    descripcion: 'Instalaciones eléctricas, cortocircuitos, tableros y luminarias.',
+    categoria: 'Hogar',
+    precio: '45',
+    tipoPrecio: 'FIJO' as const,
+  },
+  {
+    chip: '🐾 Paseador de mascotas',
+    titulo: 'Paseador y cuidado de mascotas en el barrio',
+    descripcion: 'Paseos seguros por parques de la zona y cuidado por horas.',
+    categoria: 'Otro',
+    precio: '15',
+    tipoPrecio: 'POR_HORA' as const,
+  },
+  {
+    chip: '📚 Clases particulares',
+    titulo: 'Clases de matemáticas y refuerzo escolar',
+    descripcion: 'Nivelación primaria y secundaria a domicilio o virtual.',
+    categoria: 'Educación',
+    precio: '25',
+    tipoPrecio: 'POR_HORA' as const,
+  },
+  {
+    chip: '🔑 Cerrajería',
+    titulo: 'Cerrajero 24h · Apertura y chapas',
+    descripcion: 'Apertura de puertas sin daño, cambio de cerraduras y duplicados.',
+    categoria: 'Seguridad',
+    precio: '35',
+    tipoPrecio: 'FIJO' as const,
+  },
+  {
+    chip: '🩺 Enfermería',
+    titulo: 'Enfermería técnica · Inyectables y presión',
+    descripcion: 'Curaciones, control de signos vitales y atención a domicilio.',
+    categoria: 'Salud',
+    precio: '25',
+    tipoPrecio: 'FIJO' as const,
+  },
+];
 
 type Servicio = {
   id: string;
   nombre: string;
+  descripcion: string;
   profesional: string;
   autorId: string;
   categoria: string;
+  calificacionNum: number;
   calificacion: string;
   opiniones: number;
   distancia: string;
@@ -48,9 +116,11 @@ type Servicio = {
 const aServicio = (p: Publicacion): Servicio => ({
   id: p.id,
   nombre: p.titulo,
+  descripcion: p.descripcion,
   profesional: p.autor.nombre_completo,
   autorId: p.autor.id,
   categoria: p.categoria?.nombre ?? 'Otro',
+  calificacionNum: p.autor.calificacion_promedio,
   calificacion: p.autor.calificacion_promedio.toFixed(1),
   opiniones: p.autor.total_resenas,
   distancia:
@@ -62,6 +132,8 @@ const aServicio = (p: Publicacion): Servicio => ({
 
 export default function Servicios() {
   const { q } = useLocalSearchParams<{ q?: string }>();
+  const { t } = useI18n();
+  const { offline } = useEstadoOffline();
 
   const [busqueda, setBusqueda] = useState(
     typeof q === 'string' ? q : ''
@@ -71,52 +143,210 @@ export default function Servicios() {
   const [categorias, setCategorias] = useState<string[]>(['Todos']);
   const [cargando, setCargando] = useState(true);
 
+  // Estado del modal de Calificación y Visto Bueno Vecinal
+  const [servicioEvaluado, setServicioEvaluado] =
+    useState<Servicio | null>(null);
+  const [estrellas, setEstrellas] = useState(5);
+  const [etiquetasElegidas, setEtiquetasElegidas] = useState<string[]>([
+    '✓ Visto Bueno Vecinal',
+  ]);
+  const [comentario, setComentario] = useState('');
+  const [resenas, setResenas] = useState<Resena[]>([]);
+  const [cargandoResenas, setCargandoResenas] = useState(false);
+  const [enviandoCalificacion, setEnviandoCalificacion] = useState(false);
+
+  // Estado del modal para publicar mi propio servicio (oficio / profesión)
+  const [publicarVisible, setPublicarVisible] = useState(false);
+  const [nuevoTitulo, setNuevoTitulo] = useState('');
+  const [nuevaDescripcion, setNuevaDescripcion] = useState('');
+  const [nuevaCategoria, setNuevaCategoria] = useState('Hogar');
+  const [nuevoTipoPrecio, setNuevoTipoPrecio] = useState<
+    'FIJO' | 'POR_HORA' | 'A_CONVENIR'
+  >('FIJO');
+  const [nuevoMonto, setNuevoMonto] = useState('');
+  const [publicandoServicio, setPublicandoServicio] = useState(false);
+
+  const cargarServicios = async () => {
+    try {
+      const pos = await obtenerUbicacion();
+      const [lista, cats] = await Promise.all([
+        Api.publicaciones({
+          tipo: 'SERVICIO',
+          direccion: 'OFRECE',
+          lat: pos.latitude,
+          lng: pos.longitude,
+        }),
+        Api.categorias('SERVICIO'),
+      ]);
+      setServicios(lista.map(aServicio));
+      setCategorias(['Todos', ...cats.map((c) => c.nombre)]);
+    } catch (e) {
+      mostrarError(e, 'No se pudieron cargar los servicios');
+    } finally {
+      setCargando(false);
+    }
+  };
+
   useEffect(() => {
-    let activo = true;
-
-    (async () => {
-      try {
-        const pos = await obtenerUbicacion();
-
-        const [lista, cats] = await Promise.all([
-          Api.publicaciones({
-            tipo: 'SERVICIO',
-            direccion: 'OFRECE',
-            lat: pos.latitude,
-            lng: pos.longitude,
-          }),
-          Api.categorias('SERVICIO'),
-        ]);
-
-        if (!activo) return;
-
-        setServicios(lista.map(aServicio));
-        setCategorias(['Todos', ...cats.map((c) => c.nombre)]);
-      } catch (e) {
-        if (activo) mostrarError(e, 'No se pudieron cargar los servicios');
-      } finally {
-        if (activo) setCargando(false);
-      }
-    })();
-
-    return () => {
-      activo = false;
-    };
+    cargarServicios();
   }, []);
+
+  const publicarMiServicio = async () => {
+    if (!nuevoTitulo.trim() || !nuevaDescripcion.trim()) {
+      Alert.alert(
+        'Campos incompletos',
+        'Escribe el nombre de tu oficio/servicio y una breve descripción.'
+      );
+      return;
+    }
+
+    const montoNum = parseFloat(nuevoMonto);
+    if (
+      nuevoTipoPrecio !== 'A_CONVENIR' &&
+      (!nuevoMonto.trim() || Number.isNaN(montoNum) || montoNum < 0)
+    ) {
+      Alert.alert(
+        'Indica tu tarifa',
+        'Escribe el precio en soles (S/) o selecciona "A convenir".'
+      );
+      return;
+    }
+
+    setPublicandoServicio(true);
+    try {
+      const [cats, pos] = await Promise.all([
+        Api.categorias('SERVICIO'),
+        obtenerUbicacion(),
+      ]);
+      const catId =
+        cats.find((c) => c.nombre === nuevaCategoria)?.id ??
+        cats[0]?.id ??
+        1;
+
+      await Api.crearPublicacion({
+        tipo: 'SERVICIO',
+        direccion: 'OFRECE',
+        categoria_id: catId,
+        titulo: nuevoTitulo.trim().slice(0, 80),
+        descripcion: nuevaDescripcion.trim().slice(0, 1000),
+        latitud: pos.latitude,
+        longitud: pos.longitude,
+        servicio: {
+          tipo_precio: nuevoTipoPrecio,
+          monto:
+            nuevoTipoPrecio === 'A_CONVENIR'
+              ? null
+              : montoNum,
+          modalidad: 'DOMICILIO',
+          radio_km: 5,
+          urgencia: 'MEDIA',
+        },
+      });
+
+      setPublicarVisible(false);
+      setNuevoTitulo('');
+      setNuevaDescripcion('');
+      setNuevoMonto('');
+      await cargarServicios();
+
+      Alert.alert(
+        '¡Tu servicio ya está publicado! 🛠️',
+        'Tus vecinos del barrio ya pueden encontrarte, llamarte y darte su Visto Bueno Vecinal.'
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo publicar tu servicio');
+    } finally {
+      setPublicandoServicio(false);
+    }
+  };
 
   const filtrados = servicios.filter((servicio) => {
     const coincideCategoria =
-      categoria === 'Todos' ||
-      servicio.categoria === categoria;
+      categoria === 'Todos' || servicio.categoria === categoria;
 
     const texto =
-      `${servicio.nombre} ${servicio.profesional}`.toLowerCase();
+      `${servicio.nombre} ${servicio.profesional} ${servicio.descripcion}`.toLowerCase();
 
     return (
       coincideCategoria &&
       texto.includes(busqueda.trim().toLowerCase())
     );
   });
+
+  const abrirModalCalificar = async (servicio: Servicio) => {
+    setServicioEvaluado(servicio);
+    setEstrellas(5);
+    setEtiquetasElegidas(['✓ Visto Bueno Vecinal']);
+    setComentario('');
+    setResenas([]);
+    setCargandoResenas(true);
+
+    try {
+      const lista = await Api.resenasDePublicacion(
+        servicio.id,
+        servicio.autorId
+      );
+      setResenas(lista);
+    } catch {
+      setResenas([]);
+    } finally {
+      setCargandoResenas(false);
+    }
+  };
+
+  const alternarEtiqueta = (etiqueta: string) => {
+    setEtiquetasElegidas((prev) =>
+      prev.includes(etiqueta)
+        ? prev.filter((e) => e !== etiqueta)
+        : [...prev, etiqueta]
+    );
+  };
+
+  const guardarCalificacion = async () => {
+    if (!servicioEvaluado || enviandoCalificacion) return;
+    setEnviandoCalificacion(true);
+
+    try {
+      const res = await Api.calificarPublicacion(
+        servicioEvaluado.id,
+        servicioEvaluado.autorId,
+        {
+          calificacion: estrellas,
+          comentario: comentario.trim() || undefined,
+          etiquetas: etiquetasElegidas,
+        }
+      );
+
+      // Actualizar en tiempo real todas las tarjetas de ese vecino
+      setServicios((prev) =>
+        prev.map((s) =>
+          s.autorId === servicioEvaluado.autorId
+            ? {
+                ...s,
+                calificacionNum: res.calificacion_promedio,
+                calificacion: res.calificacion_promedio.toFixed(1),
+                opiniones: res.total_resenas,
+              }
+            : s
+        )
+      );
+
+      setResenas((prev) => [
+        res.resena,
+        ...prev.filter((r) => r.id !== res.resena.id),
+      ]);
+      setComentario('');
+
+      Alert.alert(
+        '¡Visto Bueno registrado!',
+        `Tu calificación de ${estrellas} estrellas para ${servicioEvaluado.profesional} ya ayuda a otros vecinos del barrio.`
+      );
+    } catch (e) {
+      mostrarError(e, 'No se pudo registrar la calificación');
+    } finally {
+      setEnviandoCalificacion(false);
+    }
+  };
 
   const solicitarServicio = async (servicio: Servicio) => {
     try {
@@ -143,7 +373,6 @@ export default function Servicios() {
       return;
     }
 
-    // Si el profesional no comparte su teléfono, se envía una solicitud por la app.
     if (!telefono) {
       Alert.alert(
         'Contactar',
@@ -161,7 +390,7 @@ export default function Servicios() {
 
     Alert.alert(
       'Llamar al profesional',
-      `¿Deseas llamar al ${telefono}?`,
+      `¿Deseas llamar a ${servicio.profesional} (${telefono})?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -226,6 +455,16 @@ export default function Servicios() {
             Publicar
           </Text>
         </Pressable>
+        <Text style={styles.titulo}>
+          {t.serviciosBarrio}
+        </Text>
+
+        {offline && (
+          <View style={styles.offlineBadge}>
+            <Ionicons name="cloud-offline-outline" size={13} color={C.blanco} />
+            <Text style={styles.offlineBadgeTxt}>Caché Offline</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.buscador}>
@@ -237,7 +476,7 @@ export default function Servicios() {
 
         <TextInput
           style={styles.inputBusqueda}
-          placeholder="Buscar servicio..."
+          placeholder="Buscar oficio, vecino o servicio..."
           placeholderTextColor={C.secundario}
           value={busqueda}
           onChangeText={setBusqueda}
@@ -301,11 +540,11 @@ export default function Servicios() {
         <View style={styles.encabezadoLista}>
           <View>
             <Text style={styles.subtitulo}>
-              Profesionales cerca de ti
+              {t.profesionalesCerca}
             </Text>
 
             <Text style={styles.descripcionLista}>
-              Encuentra ayuda en tu comunidad
+              {t.encuentraAyuda}
             </Text>
           </View>
 
@@ -340,16 +579,112 @@ export default function Servicios() {
             </Text>
           </View>
         ) : (
-          filtrados.map((servicio) => (
-            <View
-              key={servicio.id}
-              style={styles.tarjeta}
-            >
-              <View style={styles.avatar}>
-                <Text style={styles.avatarIcono}>
-                  {servicio.icono}
-                </Text>
+          filtrados.map((servicio) => {
+            const tieneVistoBueno =
+              servicio.calificacionNum >= 4.0 && servicio.opiniones >= 1;
+
+            return (
+              <View
+                key={servicio.id}
+                style={styles.tarjeta}
+              >
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarIcono}>
+                    {servicio.icono}
+                  </Text>
+                </View>
+
+                <View style={styles.informacion}>
+                  <View style={styles.filaNombre}>
+                    <Text
+                      style={styles.nombreServicio}
+                      numberOfLines={2}
+                    >
+                      {servicio.nombre}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.profesional}>
+                    {servicio.profesional}
+                  </Text>
+
+                  {tieneVistoBueno && (
+                    <View style={styles.vistoBuenoBadge}>
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={12}
+                        color={C.principal}
+                      />
+                      <Text style={styles.vistoBuenoTexto}>
+                        {t.vistoBueno}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.calificacion}>
+                    <Ionicons
+                      name="star"
+                      size={13}
+                      color={C.dorado}
+                    />
+
+                    <Text style={styles.calificacionTexto}>
+                      {servicio.calificacion}
+                    </Text>
+
+                    <Text style={styles.opiniones}>
+                      ({servicio.opiniones} opiniones)
+                    </Text>
+                  </View>
+
+                  <View style={styles.ubicacion}>
+                    <Ionicons
+                      name="location-outline"
+                      size={12}
+                      color={C.secundario}
+                    />
+
+                    <Text style={styles.distancia}>
+                      A {servicio.distancia}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.accionesTarjeta}>
+                  <Pressable
+                    style={styles.botonCalificar}
+                    onPress={() => abrirModalCalificar(servicio)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Calificar a ${servicio.profesional}`}
+                  >
+                    <Ionicons
+                      name="star-outline"
+                      size={14}
+                      color={C.principal}
+                    />
+                    <Text style={styles.botonCalificarTexto}>
+                      {t.calificar}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.botonLlamar}
+                    onPress={() => contactar(servicio)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Llamar a ${servicio.profesional}`}
+                  >
+                    <Ionicons
+                      name="call"
+                      size={17}
+                      color={C.blanco}
+                    />
+                  </Pressable>
+                </View>
               </View>
+            );
+          })
+        )}
+      </ScrollView>
 
               <View style={styles.informacion}>
                 <Text
@@ -371,53 +706,392 @@ export default function Servicios() {
                   accessibilityRole="link"
                 >
                   {servicio.profesional} ›
+      {/* Botón flotante para que un vecino publique su oficio o servicio */}
+      <Pressable
+        style={styles.fabPublicarServicio}
+        onPress={() => setPublicarVisible(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Ofrecer mi servicio"
+      >
+        <Ionicons name="add-circle" size={22} color={C.blanco} />
+        <Text style={styles.fabPublicarTexto}>
+          Ofrecer mi servicio
+        </Text>
+      </Pressable>
+
+      {/* Modal para publicar un Servicio del Barrio (en <= 3 clics) */}
+      <Modal
+        visible={publicarVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPublicarVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalFondo}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCaja}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitulo}>
+                  Promover mi servicio
                 </Text>
-
-                <View style={styles.calificacion}>
-                  <Ionicons
-                    name="star"
-                    size={13}
-                    color={C.principal}
-                  />
-
-                  <Text style={styles.calificacionTexto}>
-                    {servicio.calificacion}
-                  </Text>
-
-                  <Text style={styles.opiniones}>
-                    ({servicio.opiniones} opiniones)
-                  </Text>
-                </View>
-
-                <View style={styles.ubicacion}>
-                  <Ionicons
-                    name="location-outline"
-                    size={12}
-                    color={C.secundario}
-                  />
-
-                  <Text style={styles.distancia}>
-                    A {servicio.distancia}
-                  </Text>
-                </View>
+                <Text style={styles.modalSubtitulo}>
+                  Ofrece tu oficio o profesión a los vecinos de tu zona
+                </Text>
               </View>
 
               <Pressable
-                style={styles.botonLlamar}
-                onPress={() => contactar(servicio)}
-                accessibilityRole="button"
-                accessibilityLabel={`Llamar a ${servicio.profesional}`}
+                style={styles.modalCerrar}
+                onPress={() => setPublicarVisible(false)}
               >
-                <Ionicons
-                  name="call"
-                  size={17}
-                  color={C.blanco}
-                />
+                <Ionicons name="close" size={21} color={C.secundario} />
               </Pressable>
             </View>
-          ))
-        )}
-      </ScrollView>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.labelSeccion}>
+                ⚡ Elige tu oficio en 1 toque (o escribe abajo):
+              </Text>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+              >
+                {PLANTILLAS_OFICIOS.map((pl) => (
+                  <Pressable
+                    key={pl.chip}
+                    style={styles.etiquetaChip}
+                    onPress={() => {
+                      setNuevoTitulo(pl.titulo);
+                      setNuevaDescripcion(pl.descripcion);
+                      setNuevaCategoria(pl.categoria);
+                      setNuevoMonto(pl.precio);
+                      setNuevoTipoPrecio(pl.tipoPrecio);
+                    }}
+                  >
+                    <Text style={styles.etiquetaTxt}>
+                      {pl.chip}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.labelSeccion}>
+                Categoría:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 6 }}
+              >
+                {categorias
+                  .filter((c) => c !== 'Todos')
+                  .map((cat) => {
+                    const activa = nuevaCategoria === cat;
+                    return (
+                      <Pressable
+                        key={cat}
+                        style={[
+                          styles.etiquetaChip,
+                          activa && styles.etiquetaChipActiva,
+                        ]}
+                        onPress={() => setNuevaCategoria(cat)}
+                      >
+                        <Text
+                          style={[
+                            styles.etiquetaTxt,
+                            activa && styles.etiquetaTxtActiva,
+                          ]}
+                        >
+                          {cat}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+              </ScrollView>
+
+              <Text style={styles.labelSeccion}>
+                Título de tu oficio o servicio:
+              </Text>
+              <TextInput
+                style={styles.inputSimple}
+                placeholder="Ej. Gasfitero a domicilio · Reparación de fugas"
+                placeholderTextColor={C.secundario}
+                value={nuevoTitulo}
+                onChangeText={setNuevoTitulo}
+                maxLength={80}
+              />
+
+              <Text style={styles.labelSeccion}>
+                ¿Qué trabajos realizas y en qué horario?
+              </Text>
+              <TextInput
+                style={styles.inputComentario}
+                placeholder="Describe tu experiencia, zonas que atiendes y si cubres urgencias..."
+                placeholderTextColor={C.secundario}
+                value={nuevaDescripcion}
+                onChangeText={setNuevaDescripcion}
+                multiline
+                maxLength={500}
+              />
+
+              <Text style={styles.labelSeccion}>
+                Modalidad de cobro vecinal:
+              </Text>
+              <View style={styles.etiquetasWrap}>
+                {(
+                  [
+                    { id: 'FIJO', label: 'Precio base (S/)' },
+                    { id: 'POR_HORA', label: 'Por hora (S/)' },
+                    { id: 'A_CONVENIR', label: 'A convenir' },
+                  ] as const
+                ).map((tp) => {
+                  const activo = nuevoTipoPrecio === tp.id;
+                  return (
+                    <Pressable
+                      key={tp.id}
+                      style={[
+                        styles.etiquetaChip,
+                        activo && styles.etiquetaChipActiva,
+                      ]}
+                      onPress={() => setNuevoTipoPrecio(tp.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.etiquetaTxt,
+                          activo && styles.etiquetaTxtActiva,
+                        ]}
+                      >
+                        {tp.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {nuevoTipoPrecio !== 'A_CONVENIR' && (
+                <>
+                  <Text style={styles.labelSeccion}>
+                    Monto referencial en Soles (S/):
+                  </Text>
+                  <TextInput
+                    style={styles.inputSimple}
+                    placeholder="Ej. 35"
+                    placeholderTextColor={C.secundario}
+                    keyboardType="numeric"
+                    value={nuevoMonto}
+                    onChangeText={setNuevoMonto}
+                  />
+                </>
+              )}
+
+              <Pressable
+                style={[
+                  styles.botonGuardarResena,
+                  publicandoServicio && { opacity: 0.7 },
+                ]}
+                onPress={publicarMiServicio}
+                disabled={publicandoServicio}
+              >
+                {publicandoServicio ? (
+                  <ActivityIndicator color={C.blanco} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={19}
+                      color={C.blanco}
+                    />
+                    <Text style={styles.botonGuardarResenaTxt}>
+                      Publicar mi servicio en el barrio
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal de Calificación y Visto Bueno Vecinal */}
+      <Modal
+        visible={servicioEvaluado !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setServicioEvaluado(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalFondo}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCaja}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitulo}>
+                  Visto Bueno Vecinal
+                </Text>
+                <Text style={styles.modalSubtitulo}>
+                  {servicioEvaluado?.profesional} · {servicioEvaluado?.nombre}
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.modalCerrar}
+                onPress={() => setServicioEvaluado(null)}
+              >
+                <Ionicons name="close" size={21} color={C.secundario} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Selector de estrellas */}
+              <Text style={styles.labelSeccion}>
+                ¿Qué calificación le das a este vecino?
+              </Text>
+
+              <View style={styles.estrellasFila}>
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <Pressable
+                    key={num}
+                    onPress={() => setEstrellas(num)}
+                    style={styles.estrellaBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${num} estrellas`}
+                  >
+                    <Ionicons
+                      name={num <= estrellas ? 'star' : 'star-outline'}
+                      size={34}
+                      color={num <= estrellas ? C.dorado : C.secundario}
+                    />
+                  </Pressable>
+                ))}
+                <Text style={styles.estrellasValor}>
+                  {estrellas}.0 / 5
+                </Text>
+              </View>
+
+              {/* Sellos de confianza vecinal */}
+              <Text style={styles.labelSeccion}>
+                Sellos de recomendación vecinal:
+              </Text>
+
+              <View style={styles.etiquetasWrap}>
+                {ETIQUETAS_VISTO_BUENO.map((et) => {
+                  const activa = etiquetasElegidas.includes(et);
+                  return (
+                    <Pressable
+                      key={et}
+                      style={[
+                        styles.etiquetaChip,
+                        activa && styles.etiquetaChipActiva,
+                      ]}
+                      onPress={() => alternarEtiqueta(et)}
+                    >
+                      <Text
+                        style={[
+                          styles.etiquetaTxt,
+                          activa && styles.etiquetaTxtActiva,
+                        ]}
+                      >
+                        {et}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Comentario */}
+              <Text style={styles.labelSeccion}>
+                Tu recomendación para el barrio (opcional):
+              </Text>
+
+              <TextInput
+                style={styles.inputComentario}
+                placeholder="Ej. Muy puntual, cobró lo acordado y solucionó rápido..."
+                placeholderTextColor={C.secundario}
+                value={comentario}
+                onChangeText={setComentario}
+                multiline
+                maxLength={350}
+              />
+
+              <Pressable
+                style={[
+                  styles.botonGuardarResena,
+                  enviandoCalificacion && { opacity: 0.7 },
+                ]}
+                onPress={guardarCalificacion}
+                disabled={enviandoCalificacion}
+              >
+                {enviandoCalificacion ? (
+                  <ActivityIndicator color={C.blanco} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={19}
+                      color={C.blanco}
+                    />
+                    <Text style={styles.botonGuardarResenaTxt}>
+                      Otorgar Visto Bueno y Calificar
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+
+              {/* Lista de reseñas de vecinos */}
+              <View style={styles.resenasHeader}>
+                <Text style={styles.labelSeccion}>
+                  Opiniones de vecinos ({resenas.length})
+                </Text>
+              </View>
+
+              {cargandoResenas ? (
+                <ActivityIndicator
+                  color={C.principal}
+                  style={{ marginVertical: 14 }}
+                />
+              ) : resenas.length === 0 ? (
+                <Text style={styles.sinResenasTxt}>
+                  Sé el primer vecino en darle el Visto Bueno a este servicio.
+                </Text>
+              ) : (
+                resenas.map((r) => (
+                  <View key={r.id} style={styles.resenaItem}>
+                    <View style={styles.resenaTop}>
+                      <Text style={styles.resenaAutor}>
+                        {r.autor.nombre_completo}
+                      </Text>
+                      <View style={styles.resenaEstrellas}>
+                        <Ionicons name="star" size={13} color={C.dorado} />
+                        <Text style={styles.resenaCalifTxt}>
+                          {r.calificacion}.0
+                        </Text>
+                        <Text style={styles.resenaFecha}>
+                          · {tiempoRelativo(r.created_at)}
+                        </Text>
+                      </View>
+                    </View>
+                    {r.comentario ? (
+                      <Text style={styles.resenaComentario}>
+                        {r.comentario}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -485,6 +1159,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  offlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E65100',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+
+  offlineBadgeTxt: {
+    color: C.blanco,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+
   buscador: {
     height: 50,
     backgroundColor: C.blanco,
@@ -546,7 +1236,44 @@ const styles = StyleSheet.create({
 
   lista: {
     paddingHorizontal: 20,
-    paddingBottom: 30,
+    paddingBottom: 95,
+  },
+
+  fabPublicarServicio: {
+    position: 'absolute',
+    bottom: 22,
+    right: 20,
+    backgroundColor: C.principal,
+    height: 52,
+    paddingHorizontal: 18,
+    borderRadius: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    elevation: 6,
+    shadowColor: C.principal,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+
+  fabPublicarTexto: {
+    color: C.blanco,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  inputSimple: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: C.borde,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    fontSize: 13,
+    color: C.texto,
+    backgroundColor: C.fondo,
+    marginBottom: 4,
   },
 
   encabezadoLista: {
@@ -588,30 +1315,27 @@ const styles = StyleSheet.create({
     backgroundColor: C.blanco,
     borderRadius: 16,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
+    paddingVertical: 12,
+    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: C.borde,
     elevation: 1,
     shadowColor: C.texto,
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 4,
   },
 
   avatar: {
-    width: 43,
-    height: 43,
-    borderRadius: 12,
+    width: 45,
+    height: 45,
+    borderRadius: 13,
     backgroundColor: C.verdeClaro,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 11,
   },
 
   avatarIcono: {
@@ -620,6 +1344,12 @@ const styles = StyleSheet.create({
 
   informacion: {
     flex: 1,
+  },
+
+  filaNombre: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
 
   nombreServicio: {
@@ -634,10 +1364,28 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  vistoBuenoBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.verdeClaro,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+
+  vistoBuenoTexto: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: C.principal,
+  },
+
   calificacion: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 4,
     gap: 4,
     flexWrap: 'wrap',
   },
@@ -645,7 +1393,7 @@ const styles = StyleSheet.create({
   calificacionTexto: {
     color: C.texto,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 
   opiniones: {
@@ -665,14 +1413,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
+  accionesTarjeta: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginLeft: 8,
+  },
+
+  botonCalificar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: C.verdeClaro,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.borde,
+  },
+
+  botonCalificarTexto: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.principal,
+  },
+
   botonLlamar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: C.principal,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
   },
 
   vacio: {
@@ -702,5 +1474,196 @@ const styles = StyleSheet.create({
     color: C.secundario,
     marginTop: 7,
     textAlign: 'center',
+  },
+
+  modalFondo: {
+    flex: 1,
+    backgroundColor: 'rgba(36,55,70,0.48)',
+    justifyContent: 'flex-end',
+  },
+
+  modalCaja: {
+    backgroundColor: C.blanco,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 32,
+    maxHeight: '86%',
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 10,
+  },
+
+  modalTitulo: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: C.principal,
+  },
+
+  modalSubtitulo: {
+    fontSize: 12,
+    color: C.secundario,
+    marginTop: 3,
+  },
+
+  modalCerrar: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  labelSeccion: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.texto,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+
+  estrellasFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+
+  estrellaBtn: {
+    padding: 3,
+  },
+
+  estrellasValor: {
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: '900',
+    color: C.texto,
+  },
+
+  etiquetasWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginBottom: 8,
+  },
+
+  etiquetaChip: {
+    backgroundColor: C.fondo,
+    borderWidth: 1,
+    borderColor: C.borde,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 14,
+  },
+
+  etiquetaChipActiva: {
+    backgroundColor: C.principal,
+    borderColor: C.principal,
+  },
+
+  etiquetaTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.texto,
+  },
+
+  etiquetaTxtActiva: {
+    color: C.blanco,
+  },
+
+  inputComentario: {
+    minHeight: 72,
+    borderWidth: 1,
+    borderColor: C.borde,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: C.texto,
+    backgroundColor: C.fondo,
+    textAlignVertical: 'top',
+  },
+
+  botonGuardarResena: {
+    backgroundColor: C.principal,
+    borderRadius: 15,
+    paddingVertical: 14,
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  botonGuardarResenaTxt: {
+    color: C.blanco,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+
+  resenasHeader: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: C.borde,
+    paddingTop: 8,
+  },
+
+  sinResenasTxt: {
+    fontSize: 12,
+    color: C.secundario,
+    fontStyle: 'italic',
+    marginBottom: 12,
+  },
+
+  resenaItem: {
+    backgroundColor: C.fondo,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: C.borde,
+  },
+
+  resenaTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  resenaAutor: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.texto,
+  },
+
+  resenaEstrellas: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+
+  resenaCalifTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.texto,
+  },
+
+  resenaFecha: {
+    fontSize: 11,
+    color: C.secundario,
+  },
+
+  resenaComentario: {
+    fontSize: 12,
+    color: C.secundario,
+    marginTop: 5,
+    lineHeight: 18,
   },
 });

@@ -1,3 +1,29 @@
+import AccionesComunitarias from '@/components/emergencias/AccionesComunitarias';
+import SeccionSOS from '@/components/emergencias/SeccionSOS';
+import SelectorUbicacion from '@/components/emergencias/SelectorUbicacion';
+import TarjetaRegistro from '@/components/emergencias/TarjetaRegistro';
+import {
+  COLORES_EMERGENCIAS as C,
+  REGION_INICIAL_EMERGENCIAS as REGION_INICIAL,
+  type AccionEmergencia as Accion,
+  type RegistroEmergencia as Registro,
+  type UbicacionEmergencia as Ubicacion,
+  type VistaEmergencia as Vista,
+} from '@/constants/emergencias';
+import { Api, type Publicacion } from '@/lib/api';
+import {
+  INFO_TIPO_SOS,
+  sincronizarTodoPendiente,
+} from '@/lib/emeregenciaService';
+import { obtenerEmergenciasLocales } from '@/lib/emergenciaLocal';
+import { useI18n } from '@/lib/i18n';
+import { useEstadoOffline } from '@/lib/offline';
+import {
+  CENTRO_AREQUIPA,
+  mostrarError,
+  obtenerUbicacion,
+  zonaIdPorNombre,
+} from '@/lib/ui';
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -15,11 +41,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import MapView, {
-  MapPressEvent,
-  Marker,
-  Region,
-} from 'react-native-maps';
+import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Api, type Publicacion } from '@/lib/api';
@@ -69,6 +91,44 @@ const REGION_INICIAL: Region = {
   latitudeDelta: 0.035,
   longitudeDelta: 0.035,
 };
+const PLANTILLAS_SOLICITAR = [
+  {
+    etiqueta: '💧 Agua potable',
+    titulo: 'Necesito agua potable urgente',
+    descripcion: 'Corte de suministro en mi cuadra, requerimos agua para familia.',
+  },
+  {
+    etiqueta: '🩹 Primeros auxilios',
+    titulo: 'Solicito botiquín / primeros auxilios',
+    descripcion: 'Vecino con herida leve requiere gasas, alcohol y apoyo básico.',
+  },
+  {
+    etiqueta: '👵 Adulto mayor',
+    titulo: 'Apoyo para adulto mayor en vivienda',
+    descripcion: 'Necesitamos ayuda para evacuar o acompañar a vecino adulto mayor.',
+  },
+];
+
+const PLANTILLAS_OFRECER = [
+  {
+    etiqueta: '💧 Botellas de agua',
+    titulo: 'Punto vecinal de agua potable',
+    descripcion: 'Comparto agua limpia para vecinos de la cuadra.',
+    cantidad: '20 botellas de agua',
+  },
+  {
+    etiqueta: '🔋 Carga de celulares',
+    titulo: 'Punto de carga de baterías / generador',
+    descripcion: 'Tengo batería externa y corriente para cargar celulares en emergencia.',
+    cantidad: '5 equipos en simultáneo',
+  },
+  {
+    etiqueta: '🩹 Botiquín equipado',
+    titulo: 'Botiquín comunitario disponible',
+    descripcion: 'Cuento con vendas, antisépticos, analgésicos y tensiómetro.',
+    cantidad: '1 botiquín completo',
+  },
+];
 
 const aRegistro = (p: Publicacion): Registro | null => {
   if (p.latitud == null || p.longitud == null) return null;
@@ -78,7 +138,7 @@ const aRegistro = (p: Publicacion): Registro | null => {
     tipo: p.direccion === 'OFRECE' ? 'ofrecer' : 'solicitar',
     titulo: p.titulo,
     descripcion: p.descripcion,
-    zona: p.zona?.nombre ?? 'Sin zona',
+    zona: p.zona?.nombre ?? 'Cercado',
     cantidad: p.emergencia?.detalle_cantidad ?? undefined,
     ubicacion: {
       latitude: p.latitud,
@@ -89,42 +149,34 @@ const aRegistro = (p: Publicacion): Registro | null => {
 
 export default function Emergencias() {
   const mapaRef = useRef<MapView>(null);
+  const { t } = useI18n();
+  const { offline } = useEstadoOffline();
 
-  const [accion, setAccion] =
-    useState<Accion | null>(null);
-
-  const [vista, setVista] =
-    useState<Vista>(null);
-
-  const [ubicacionVisible, setUbicacionVisible] =
-    useState(false);
-
-  const [mapaDetalleVisible, setMapaDetalleVisible] =
-    useState(false);
+  const [accion, setAccion] = useState<Accion | null>(null);
+  const [vista, setVista] = useState<Vista>(null);
+  const [ubicacionVisible, setUbicacionVisible] = useState(false);
+  const [mapaDetalleVisible, setMapaDetalleVisible] = useState(false);
 
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
-  const [zona, setZona] = useState('');
+  const [zona, setZona] = useState('Cercado');
   const [cantidad, setCantidad] = useState('');
 
-  const [ubicacion, setUbicacion] =
-    useState<Ubicacion | null>(null);
-
-  const [ubicacionDetalle, setUbicacionDetalle] =
-    useState<Ubicacion | null>(null);
-
-  const [registroSeleccionado, setRegistroSeleccionado] =
-    useState<Registro | null>(null);
+  const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null);
+  const [ubicacionDetalle, setUbicacionDetalle] = useState<Ubicacion | null>(null);
+  const [registroSeleccionado, setRegistroSeleccionado] = useState<Registro | null>(null);
 
   const [recursos, setRecursos] = useState<Registro[]>([]);
   const [reportes, setReportes] = useState<Registro[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [regionMapa, setRegionMapa] = useState<Region>(REGION_INICIAL);
 
   const cargar = useCallback(async () => {
     try {
-      const lista = await Api.publicaciones({
-        tipo: 'EMERGENCIA',
-      });
+      const [lista, localesSOS] = await Promise.all([
+        Api.publicaciones({ tipo: 'EMERGENCIA' }),
+        obtenerEmergenciasLocales(),
+      ]);
 
       const registros = lista
         .map(aRegistro)
@@ -142,9 +194,33 @@ export default function Emergencias() {
           longitude: r.ubicacion.longitude,
         }))
       );
+      // Incluir también las alertas SOS locales pendientes para que se vean sin internet
+      const reportesLocalesSOS: Registro[] = localesSOS
+        .filter(
+          (sos) =>
+            !sos.sincronizada &&
+            sos.estado !== 'CANCELADA'
+        )
+        .map((sos) => {
+          const info = INFO_TIPO_SOS[sos.tipo] ?? INFO_TIPO_SOS.GENERAL;
+          return {
+            id: sos.id,
+            tipo: 'solicitar',
+            titulo: `🆘 SOS ${info.titulo} (Guardado en dispositivo)`,
+            descripcion: sos.detalle || info.mensajeBase,
+            zona: 'Mi ubicación GPS',
+            ubicacion: {
+              latitude: sos.latitud ?? CENTRO_AREQUIPA.latitude,
+              longitude: sos.longitud ?? CENTRO_AREQUIPA.longitude,
+            },
+          };
+        });
 
       setRecursos(registros.filter((r) => r.tipo === 'ofrecer'));
-      setReportes(registros.filter((r) => r.tipo === 'solicitar'));
+      setReportes([
+        ...reportesLocalesSOS,
+        ...registros.filter((r) => r.tipo === 'solicitar'),
+      ]);
     } catch (e) {
       mostrarError(e, 'No se pudieron cargar las emergencias');
     }
@@ -156,44 +232,34 @@ export default function Emergencias() {
     }, [cargar])
   );
 
-  const [regionMapa, setRegionMapa] =
-    useState<Region>(REGION_INICIAL);
-
-  const abrirFormulario = (tipo: Accion) => {
+  const abrirFormulario = async (tipo: Accion) => {
     setTitulo('');
     setDescripcion('');
-    setZona('');
+    setZona('Cercado');
     setCantidad('');
-    setUbicacion(null);
     setAccion(tipo);
+    // Autocompletar ubicación GPS por defecto para ahorrar clics en emergencia
+    const pos = await obtenerUbicacion();
+    setUbicacion(pos);
   };
 
   const cerrarFormulario = () => {
     setAccion(null);
   };
 
-  const seleccionarUbicacion = (
-    evento: MapPressEvent
-  ) => {
-    const coordenadas =
-      evento.nativeEvent.coordinate;
-
-    setUbicacion({
-      latitude: coordenadas.latitude,
-      longitude: coordenadas.longitude,
-    });
-  };
-
-  const confirmarUbicacion = () => {
-    if (!ubicacion) {
-      Alert.alert(
-        'Selecciona una ubicación',
-        'Toca el mapa para marcar el lugar.'
-      );
-      return;
+  const aplicarPlantilla = (plantilla: {
+    titulo: string;
+    descripcion: string;
+    cantidad?: string;
+  }) => {
+    setTitulo(plantilla.titulo);
+    setDescripcion(plantilla.descripcion);
+    if (plantilla.cantidad) {
+      setCantidad(plantilla.cantidad);
     }
-
-    setUbicacionVisible(false);
+    if (!zona.trim()) {
+      setZona('Cercado');
+    }
   };
 
   const guardar = async () => {
@@ -201,6 +267,7 @@ export default function Emergencias() {
       !titulo.trim() ||
       !descripcion.trim()
     ) {
+    if (!titulo.trim() || !descripcion.trim() || !zona.trim()) {
       Alert.alert(
         'Campos incompletos',
         'Completa el título y la descripción.'
@@ -208,13 +275,7 @@ export default function Emergencias() {
       return;
     }
 
-    if (!ubicacion) {
-      Alert.alert(
-        'Ubicación requerida',
-        'Selecciona un punto en el mapa.'
-      );
-      return;
-    }
+    const coordFinal = ubicacion ?? CENTRO_AREQUIPA;
 
     if (accion === 'ofrecer' && !cantidad.trim()) {
       Alert.alert(
@@ -224,9 +285,7 @@ export default function Emergencias() {
       return;
     }
 
-    if (!accion) return;
-
-    if (guardando) return;
+    if (!accion || guardando) return;
     setGuardando(true);
 
     try {
@@ -234,8 +293,9 @@ export default function Emergencias() {
       const zonaId = (
         await zonaMasCercana(ubicacion.latitude, ubicacion.longitude)
       )?.id ?? null;
+      const zonaId = await zonaIdPorNombre(zona);
 
-      await Api.crearPublicacion({
+      const pub = await Api.crearPublicacion({
         tipo: 'EMERGENCIA',
         direccion: accion === 'ofrecer' ? 'OFRECE' : 'SOLICITA',
         titulo: titulo.trim().slice(0, 80),
@@ -243,11 +303,18 @@ export default function Emergencias() {
         zona_id: zonaId,
         latitud: ubicacion.latitude,
         longitud: ubicacion.longitude,
+        descripcion: (
+          zonaId
+            ? descripcion.trim()
+            : `${descripcion.trim()}\nZona: ${zona.trim()}`
+        ).slice(0, 1000),
+        zona_id: zonaId ?? 1,
+        latitud: coordFinal.latitude,
+        longitud: coordFinal.longitude,
         emergencia: {
           nivel_urgencia: 'ALTA',
           ...(accion === 'ofrecer'
             ? {
-                // "20 botellas de agua" -> cantidad 20 + texto completo
                 cantidad: parseInt(cantidad.match(/\d+/)?.[0] ?? '1', 10) || 1,
                 detalle_cantidad: cantidad.trim().slice(0, 200),
               }
@@ -258,15 +325,16 @@ export default function Emergencias() {
       setAccion(null);
       setTitulo('');
       setDescripcion('');
-      setZona('');
       setCantidad('');
-      setUbicacion(null);
 
       await cargar();
 
+      const esOffline = pub.id.startsWith('offline-');
       Alert.alert(
-        'Registro guardado',
-        'Tu información ya está visible para otros vecinos.'
+        esOffline ? 'Guardado en Modo Offline' : 'Registro publicado',
+        esOffline
+          ? 'Tu reporte se guardó en tu celular y se enviará automáticamente a tus vecinos cuando vuelva el internet.'
+          : 'Tu información ya está visible para otros vecinos en tiempo real.'
       );
     } catch (e) {
       mostrarError(e, 'No se pudo guardar');
@@ -294,76 +362,12 @@ export default function Emergencias() {
     setUbicacionDetalle(null);
   };
 
-  const renderRegistro = (registro: Registro) => (
-    <View
-      key={registro.id}
-      style={s.registroCard}
-    >
-      <View style={s.registroHeader}>
-        <View style={s.registroIcono}>
-          <Ionicons
-            name={
-              registro.tipo === 'ofrecer'
-                ? 'cube-outline'
-                : 'alert-circle-outline'
-            }
-            size={21}
-            color={C.principal}
-          />
-        </View>
-
-        <View style={s.registroInfo}>
-          <Text style={s.registroTitulo}>
-            {registro.titulo}
-          </Text>
-
-          <View style={s.zonaFila}>
-            <Ionicons
-              name="location-outline"
-              size={13}
-              color={C.secundario}
-            />
-
-            <Text style={s.registroZona}>
-              {registro.zona}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <Text style={s.registroDescripcion}>
-        {registro.descripcion}
-      </Text>
-
-      {registro.cantidad && (
-        <View style={s.cantidadBox}>
-          <Ionicons
-            name="cube-outline"
-            size={14}
-            color={C.principal}
-          />
-
-          <Text style={s.cantidadTexto}>
-            Disponible: {registro.cantidad}
-          </Text>
-        </View>
-      )}
-
-      <Pressable
-        style={s.verMapaBoton}
-        onPress={() => verEnMapa(registro)}
-      >
-        <Ionicons
-          name="map-outline"
-          size={17}
-          color={C.blanco}
-        />
-
-        <Text style={s.verMapaTexto}>
-          Ver en el mapa
-        </Text>
-      </Pressable>
-    </View>
+  const renderRegistro = (item: Registro) => (
+    <TarjetaRegistro
+      key={item.id}
+      registro={item}
+      onVerMapa={verEnMapa}
+    />
   );
 
   return (
@@ -382,8 +386,27 @@ export default function Emergencias() {
         </Pressable>
 
         <Text style={s.title}>
-          Modo Emergencia
+          {t.modoEmergencia}
         </Text>
+
+        {offline && (
+          <Pressable
+            style={s.syncPill}
+            onPress={async () => {
+              const r = await sincronizarTodoPendiente();
+              await cargar();
+              Alert.alert(
+                'Sincronización',
+                r.sosSincronizados + r.publicacionesSincronizadas > 0
+                  ? 'Se sincronizaron tus reportes con la red vecinal.'
+                  : 'Modo Offline activo: tus datos siguen seguros en este dispositivo.'
+              );
+            }}
+          >
+            <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
+            <Text style={s.syncPillTxt}>Offline</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView
@@ -401,12 +424,11 @@ export default function Emergencias() {
           </View>
 
           <Text style={s.alertTitle}>
-            Ayuda comunitaria
+            {t.ayudaComunitaria}
           </Text>
 
           <Text style={s.alertSubtitle}>
-            Solicita apoyo o comparte recursos
-            con tu comunidad.
+            {t.subtituloEmergencia}
           </Text>
         </View>
 
@@ -441,67 +463,14 @@ export default function Emergencias() {
             size={20}
             color={C.principal}
           />
+        {/* Sección SOS Offline/Online con Robo, Hospital y Sismo */}
+        <SeccionSOS onEmergenciaSincronizada={cargar} />
 
-          <Text style={s.warningText}>
-            Ante un peligro inmediato, contacta
-            directamente a los servicios de
-            emergencia. Esta pantalla no envía
-            alertas reales.
-          </Text>
-        </View>
-
-        {/* Acciones */}
-        <Text style={s.sectionTitle}>
-          ¿Qué deseas hacer?
-        </Text>
-
-        <View style={s.actions}>
-          <Pressable
-            style={s.actionCard}
-            onPress={() =>
-              abrirFormulario('solicitar')
-            }
-          >
-            <View style={s.actionIcono}>
-              <Ionicons
-                name="hand-left-outline"
-                size={29}
-                color={C.principal}
-              />
-            </View>
-
-            <Text style={s.actionText}>
-              Solicitar ayuda
-            </Text>
-
-            <Text style={s.actionDescripcion}>
-              Registra una necesidad y su ubicación
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={s.actionCard}
-            onPress={() =>
-              abrirFormulario('ofrecer')
-            }
-          >
-            <View style={s.actionIcono}>
-              <Ionicons
-                name="cube-outline"
-                size={29}
-                color={C.principal}
-              />
-            </View>
-
-            <Text style={s.actionText}>
-              Ofrecer recurso
-            </Text>
-
-            <Text style={s.actionDescripcion}>
-              Publica recursos y un puesto de ayuda
-            </Text>
-          </Pressable>
-        </View>
+        {/* Acciones comunitarias */}
+        <AccionesComunitarias
+          onSolicitar={() => abrirFormulario('solicitar')}
+          onOfrecer={() => abrirFormulario('ofrecer')}
+        />
 
         {/* Números de emergencia */}
         <Text style={s.sectionTitle}>Números de emergencia</Text>
@@ -584,7 +553,7 @@ export default function Emergencias() {
 
         {/* Consultas */}
         <Text style={s.sectionTitle}>
-          Información comunitaria
+          Información comunitaria (Online / Offline)
         </Text>
 
         <Pressable
@@ -601,11 +570,11 @@ export default function Emergencias() {
 
           <View style={s.listContent}>
             <Text style={s.listTitle}>
-              Recursos disponibles
+              Recursos y puntos de apoyo
             </Text>
 
             <Text style={s.listSubtitle}>
-              {recursos.length} puestos de ayuda y recursos
+              {recursos.length} puestos de ayuda y recursos disponibles
             </Text>
           </View>
 
@@ -630,7 +599,7 @@ export default function Emergencias() {
 
           <View style={s.listContent}>
             <Text style={s.listTitle}>
-              Reportes de la zona
+              Reportes y alertas SOS de la zona
             </Text>
 
             <Text style={s.listSubtitle}>
@@ -646,7 +615,7 @@ export default function Emergencias() {
         </Pressable>
       </ScrollView>
 
-      {/* Formulario de solicitud/recurso */}
+      {/* Formulario de solicitud/recurso con plantillas de 1 toque (<= 3 clics) */}
       <Modal
         visible={accion !== null}
         transparent
@@ -655,11 +624,7 @@ export default function Emergencias() {
       >
         <KeyboardAvoidingView
           style={s.modalBackdrop}
-          behavior={
-            Platform.OS === 'ios'
-              ? 'padding'
-              : undefined
-          }
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
             contentContainerStyle={s.modalScroll}
@@ -684,6 +649,31 @@ export default function Emergencias() {
                   />
                 </Pressable>
               </View>
+
+              {/* Plantillas rápidas para publicar en <= 3 clics */}
+              <Text style={s.plantillasLabel}>
+                ⚡ Publicación rápida en 1 toque:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.plantillasRow}
+              >
+                {(accion === 'solicitar'
+                  ? PLANTILLAS_SOLICITAR
+                  : PLANTILLAS_OFRECER
+                ).map((pl) => (
+                  <Pressable
+                    key={pl.etiqueta}
+                    style={s.plantillaChip}
+                    onPress={() => aplicarPlantilla(pl)}
+                  >
+                    <Text style={s.plantillaChipTxt}>
+                      {pl.etiqueta}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
 
               <Text style={s.label}>
                 {accion === 'solicitar'
@@ -739,9 +729,7 @@ export default function Emergencias() {
 
               <Pressable
                 style={s.ubicacionBoton}
-                onPress={() =>
-                  setUbicacionVisible(true)
-                }
+                onPress={() => setUbicacionVisible(true)}
               >
                 <Ionicons
                   name="location-outline"
@@ -751,16 +739,12 @@ export default function Emergencias() {
 
                 <Text style={s.ubicacionTexto}>
                   {ubicacion
-                    ? 'Ubicación seleccionada'
+                    ? 'Ubicación GPS lista (toca para ajustar)'
                     : 'Seleccionar ubicación'}
                 </Text>
 
                 <Ionicons
-                  name={
-                    ubicacion
-                      ? 'checkmark-circle'
-                      : 'chevron-forward'
-                  }
+                  name={ubicacion ? 'checkmark-circle' : 'chevron-forward'}
                   size={20}
                   color={C.principal}
                 />
@@ -771,14 +755,12 @@ export default function Emergencias() {
                 onPress={guardar}
               >
                 <Text style={s.submitText}>
-                  Guardar registro
+                  {guardando ? 'Guardando...' : 'Publicar ahora'}
                 </Text>
               </Pressable>
 
               <Text style={s.modalNote}>
-                Esto no reemplaza a los servicios de
-                emergencia. En una urgencia real, llama al 105 (Policía)
-                o al 116 (Bomberos).
+                Funciona con y sin internet. En peligro inmediato llama al 105 (Policía), 106 (SAMU) o 116 (Bomberos).
               </Text>
             </View>
           </ScrollView>
@@ -786,80 +768,13 @@ export default function Emergencias() {
       </Modal>
 
       {/* Selector de ubicación */}
-      <Modal
+      <SelectorUbicacion
         visible={ubicacionVisible}
-        animationType="slide"
-        onRequestClose={() =>
-          setUbicacionVisible(false)
-        }
-      >
-        <SafeAreaView style={s.mapPage}>
-          <View style={s.mapHeader}>
-            <Pressable
-              onPress={() =>
-                setUbicacionVisible(false)
-              }
-              style={s.back}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={23}
-                color={C.principal}
-              />
-            </Pressable>
-
-            <View style={{ flex: 1 }}>
-              <Text style={s.mapTitle}>
-                Seleccionar ubicación
-              </Text>
-
-              <Text style={s.mapSubtitle}>
-                Toca el mapa para colocar un marcador
-              </Text>
-            </View>
-          </View>
-
-          <View style={s.mapContainer}>
-            <MapView
-              style={s.map}
-              initialRegion={
-                ubicacion
-                  ? {
-                      ...ubicacion,
-                      latitudeDelta: 0.015,
-                      longitudeDelta: 0.015,
-                    }
-                  : REGION_INICIAL
-              }
-              onPress={seleccionarUbicacion}
-            >
-              {ubicacion && (
-                <Marker
-                  coordinate={ubicacion}
-                  pinColor={C.principal}
-                />
-              )}
-            </MapView>
-          </View>
-
-          <View style={s.mapFooter}>
-            <Text style={s.mapFooterTexto}>
-              {ubicacion
-                ? 'Punto marcado correctamente'
-                : 'Selecciona el lugar en el mapa'}
-            </Text>
-
-            <Pressable
-              style={s.submit}
-              onPress={confirmarUbicacion}
-            >
-              <Text style={s.submitText}>
-                Confirmar ubicación
-              </Text>
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </Modal>
+        ubicacion={ubicacion}
+        onUbicacionChange={setUbicacion}
+        onConfirmar={() => setUbicacionVisible(false)}
+        onCerrar={() => setUbicacionVisible(false)}
+      />
 
       {/* Listas de recursos y reportes */}
       <Modal
@@ -894,13 +809,10 @@ export default function Emergencias() {
             <Text style={s.listaDescripcion}>
               {vista === 'recursos'
                 ? 'Consulta los puestos de ayuda, los recursos disponibles y su ubicación.'
-                : 'Consulta los reportes comunitarios y localiza cada situación en el mapa.'}
+                : 'Consulta los reportes comunitarios y alertas SOS geolocalizadas.'}
             </Text>
 
-            {(vista === 'recursos'
-              ? recursos
-              : reportes
-            ).map(renderRegistro)}
+            {(vista === 'recursos' ? recursos : reportes).map(renderRegistro)}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1016,6 +928,22 @@ const s = StyleSheet.create({
     flex: 1,
   },
 
+  syncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#E65100',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+
+  syncPillTxt: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
   content: {
     paddingHorizontal: 20,
     paddingBottom: 40,
@@ -1024,48 +952,33 @@ const s = StyleSheet.create({
   alertBanner: {
     backgroundColor: C.principal,
     borderRadius: 18,
-    padding: 22,
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
   },
 
   bannerIcono: {
-    width: 55,
-    height: 55,
-    borderRadius: 17,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     backgroundColor: C.verdeClaro,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
 
   alertTitle: {
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: '900',
     color: C.blanco,
+    textAlign: 'center',
   },
 
   alertSubtitle: {
     fontSize: 13,
     color: C.blanco,
     textAlign: 'center',
-    marginTop: 7,
-    lineHeight: 19,
-  },
-
-  warning: {
-    flexDirection: 'row',
-    gap: 10,
-    backgroundColor: C.verdeClaro,
-    padding: 14,
-    borderRadius: 13,
-    marginBottom: 23,
-  },
-
-  warningText: {
-    flex: 1,
-    fontSize: 12,
-    color: C.texto,
+    marginTop: 6,
     lineHeight: 19,
   },
 
@@ -1074,49 +987,6 @@ const s = StyleSheet.create({
     fontWeight: '800',
     color: C.texto,
     marginBottom: 13,
-  },
-
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 25,
-  },
-
-  actionCard: {
-    flex: 1,
-    backgroundColor: C.blanco,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 21,
-    borderWidth: 1,
-    borderColor: C.borde,
-  },
-
-  actionIcono: {
-    width: 55,
-    height: 55,
-    borderRadius: 17,
-    backgroundColor: C.verdeClaro,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 11,
-  },
-
-  actionText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: C.texto,
-    textAlign: 'center',
-  },
-
-  actionDescripcion: {
-    fontSize: 11,
-    color: C.secundario,
-    textAlign: 'center',
-    marginTop: 6,
-    lineHeight: 16,
   },
 
   listCard: {
@@ -1179,7 +1049,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 22,
+    marginBottom: 14,
   },
 
   modalTitle: {
@@ -1196,6 +1066,33 @@ const s = StyleSheet.create({
     backgroundColor: C.verdeClaro,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  plantillasLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.principal,
+    marginBottom: 8,
+  },
+
+  plantillasRow: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+
+  plantillaChip: {
+    backgroundColor: C.verdeClaro,
+    borderWidth: 1,
+    borderColor: C.borde,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+
+  plantillaChipTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.principal,
   },
 
   label: {
@@ -1215,15 +1112,15 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
     color: C.texto,
-    marginBottom: 17,
+    marginBottom: 15,
   },
 
   inputMultilinea: {
-    minHeight: 90,
+    minHeight: 82,
   },
 
   ubicacionBoton: {
-    height: 54,
+    height: 52,
     backgroundColor: C.verdeClaro,
     borderRadius: 14,
     borderWidth: 1,
@@ -1246,7 +1143,7 @@ const s = StyleSheet.create({
     borderRadius: 15,
     padding: 16,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 18,
   },
 
   submitText: {
@@ -1309,12 +1206,6 @@ const s = StyleSheet.create({
     borderTopColor: C.borde,
   },
 
-  mapFooterTexto: {
-    fontSize: 13,
-    color: C.secundario,
-    textAlign: 'center',
-  },
-
   listaRegistros: {
     paddingHorizontal: 20,
     paddingBottom: 35,
@@ -1325,93 +1216,6 @@ const s = StyleSheet.create({
     color: C.secundario,
     lineHeight: 20,
     marginBottom: 18,
-  },
-
-  registroCard: {
-    backgroundColor: C.blanco,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.borde,
-    marginBottom: 10,
-  },
-
-  registroHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 11,
-  },
-
-  registroIcono: {
-    width: 43,
-    height: 43,
-    borderRadius: 12,
-    backgroundColor: C.verdeClaro,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  registroInfo: {
-    flex: 1,
-  },
-
-  registroTitulo: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: C.texto,
-  },
-
-  zonaFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-
-  registroZona: {
-    fontSize: 12,
-    color: C.secundario,
-  },
-
-  registroDescripcion: {
-    fontSize: 13,
-    color: C.secundario,
-    lineHeight: 19,
-    marginBottom: 10,
-  },
-
-  cantidadBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: C.verdeClaro,
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 11,
-  },
-
-  cantidadTexto: {
-    fontSize: 12,
-    color: C.principal,
-    fontWeight: '700',
-    flex: 1,
-  },
-
-  verMapaBoton: {
-    backgroundColor: C.principal,
-    borderRadius: 12,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-
-  verMapaTexto: {
-    color: C.blanco,
-    fontSize: 13,
-    fontWeight: '800',
   },
 
   detalleMapaTitulo: {

@@ -1,17 +1,24 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import { getUsuario, getAccessToken } from './session';
+import {
+  CATEGORIAS_SEMILLA_OFFLINE,
+  encolarPublicacionOffline,
+  guardarCache,
+  guardarResenaLocal,
+  isOfflineSimulado,
+  leerCache,
+  leerResenasLocales,
+  obtenerColaPublicaciones,
+  PUBLICACIONES_SEMILLA_OFFLINE,
+  reportarEstadoRed,
+  ZONAS_SEMILLA_OFFLINE,
+} from './offline';
+import { getUsuario } from './session';
 
 /* ------------------------------------------------------------------ */
 /* URL del backend                                                     */
 /* ------------------------------------------------------------------ */
-/**
- * Orden de prioridad:
- * 1. EXPO_PUBLIC_API_URL (archivo .env del frontend)  -> recomendado para despliegue
- * 2. La IP de tu PC, que Expo ya conoce (hostUri)       -> funciona solo en desarrollo
- * 3. Android emulador: 10.0.2.2 · resto: localhost
- */
 function resolverBaseUrl(): string {
   const env = process.env.EXPO_PUBLIC_API_URL;
   if (env) return env.replace(/\/$/, '');
@@ -67,7 +74,6 @@ export type UsuarioResumen = {
 };
 
 export type Usuario = UsuarioResumen & {
-    access_token?: string;
   correo: string;
   telefono: string;
   zona: Zona | null;
@@ -82,6 +88,7 @@ export type Usuario = UsuarioResumen & {
     verificado: boolean;
   } | null;
   created_at: string;
+  access_token?: string | null;
 };
 
 export type UsuarioPublico = UsuarioResumen & {
@@ -178,27 +185,36 @@ export type Resena = {
 };
 
 export type Recurso = {
+
+export type Resena = {
+  id: string;
+  acuerdo_id: string;
+  calificacion: number;
+  comentario: string | null;
+  created_at: string;
+  autor: UsuarioResumen;
+};
+
+export type CalificarRespuesta = {
+  resena: Resena;
+  calificacion_promedio: number;
+  total_resenas: number;
+  visto_bueno_vecinal: boolean;
+};
+
+export type RecursoPersonal = {
   id: string;
   usuario_id: string;
   nombre: string;
-  descripcion: string;
+  descripcion: string | null;
   cantidad: number;
-  unidad: string;
+  unidad: string | null;
   disponible: boolean;
   created_at: string;
 };
 
-export type NuevoRecurso = {
-  nombre: string;
-  descripcion: string;
-  cantidad: number;
-  unidad: string;
-  disponible: boolean;
-
-};
-
 /* ------------------------------------------------------------------ */
-/* Cliente HTTP                                                        */
+/* Cliente HTTP con seguridad Bearer + detección Offline               */
 /* ------------------------------------------------------------------ */
 export class ApiError extends Error {
   status: number;
@@ -208,7 +224,6 @@ export class ApiError extends Error {
   }
 }
 
-/** FastAPI devuelve `detail` como texto (reglas de negocio) o como lista (validación). */
 function mensajeDeError(detail: unknown): string {
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) {
@@ -225,32 +240,42 @@ function mensajeDeError(detail: unknown): string {
 
 export async function api<T = unknown>(
   ruta: string,
-  init: RequestInit & { json?: unknown } = {}
+  init: RequestInit & { json?: unknown; timeoutMs?: number } = {}
 ): Promise<T> {
-  const { json, headers, ...resto } = init;
+  if (isOfflineSimulado()) {
+    throw new ApiError(0, 'Modo Offline activo');
+  }
+
+  const { json, headers, timeoutMs = 4500, ...resto } = init;
   const usuario = getUsuario();
-  const token = getAccessToken();
+
+  const controlador = new AbortController();
+  const timer = setTimeout(() => controlador.abort(), timeoutMs);
 
   let respuesta: Response;
   try {
     respuesta = await fetch(`${API_URL}${ruta}`, {
       ...resto,
+      signal: controlador.signal,
       headers: {
         'Content-Type': 'application/json',
-        ...(token
-          ? { Authorization: `Bearer ${token}` }
-          : usuario
-            ? { 'X-User-Id': usuario.id }
-            : {}),
+        ...(usuario?.access_token && usuario.access_token !== 'offline-local-session'
+          ? { Authorization: `Bearer ${usuario.access_token}` }
+          : {}),
+        ...(usuario ? { 'X-User-Id': usuario.id } : {}),
         ...(headers as Record<string, string> | undefined),
       },
       body: json !== undefined ? JSON.stringify(json) : resto.body,
     });
+    reportarEstadoRed(true);
   } catch {
+    reportarEstadoRed(false);
     throw new ApiError(
       0,
-      `No se pudo conectar con el servidor (${API_URL}). Revisa que el backend esté encendido y que tu celular esté en la misma red Wi-Fi.`
+      `Modo Sin Conexión: no se pudo contactar al servidor (${API_URL}).`
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   if (respuesta.status === 204) return null as T;
@@ -270,8 +295,30 @@ const query = (params: Record<string, unknown>) => {
   return q ? `?${q}` : '';
 };
 
+function filtrarPublicacionesLocal(
+  lista: Publicacion[],
+  filtros: {
+    tipo?: TipoPublicacion;
+    direccion?: Direccion;
+    categoria_id?: number;
+    q?: string;
+  }
+): Publicacion[] {
+  return lista.filter((p) => {
+    if (filtros.tipo && p.tipo !== filtros.tipo) return false;
+    if (filtros.direccion && p.direccion !== filtros.direccion) return false;
+    if (filtros.categoria_id && p.categoria?.id !== filtros.categoria_id) return false;
+    if (filtros.q) {
+      const q = filtros.q.trim().toLowerCase();
+      const txt = `${p.titulo} ${p.descripcion}`.toLowerCase();
+      if (!txt.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
 /* ------------------------------------------------------------------ */
-/* Endpoints                                                           */
+/* Endpoints con Respaldo Offline Automático                           */
 /* ------------------------------------------------------------------ */
 export const Api = {
   // Auth
@@ -285,10 +332,37 @@ export const Api = {
     zona_id?: number | null;
   }) => api<Usuario>('/auth/registro', { method: 'POST', json: datos }),
 
-  // Catálogos
-  zonas: () => api<Zona[]>('/zonas'),
-  categorias: (tipo?: TipoPublicacion) =>
-    api<Categoria[]>(`/categorias${query({ tipo })}`),
+  // Catálogos (con caché offline y semillas)
+  zonas: async (): Promise<Zona[]> => {
+    try {
+      const res = await api<Zona[]>('/zonas');
+      await guardarCache('zonas', res);
+      return res;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        return (await leerCache<Zona[]>('zonas')) ?? ZONAS_SEMILLA_OFFLINE;
+      }
+      throw e;
+    }
+  },
+
+  categorias: async (tipo?: TipoPublicacion): Promise<Categoria[]> => {
+    const clave = `categorias:${tipo ?? 'ALL'}`;
+    try {
+      const res = await api<Categoria[]>(`/categorias${query({ tipo })}`);
+      await guardarCache(clave, res);
+      return res;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const cache = await leerCache<Categoria[]>(clave);
+        if (cache) return cache;
+        return tipo
+          ? CATEGORIAS_SEMILLA_OFFLINE.filter((c) => c.aplica_a.includes(tipo))
+          : CATEGORIAS_SEMILLA_OFFLINE;
+      }
+      throw e;
+    }
+  },
 
   // Usuarios
   miPerfil: () => api<Usuario>('/usuarios/me'),
@@ -301,10 +375,32 @@ export const Api = {
     perfil_publico: boolean;
     notificaciones_activas: boolean;
   }>) => api<Usuario>('/usuarios/me', { method: 'PATCH', json: cambios }),
-  usuario: (id: string) => api<UsuarioPublico>(`/usuarios/${id}`),
 
-  // Publicaciones
-  publicaciones: (filtros: {
+  usuario: async (id: string): Promise<UsuarioPublico> => {
+    try {
+      const u = await api<UsuarioPublico>(`/usuarios/${id}`);
+      await guardarCache(`usuario:${id}`, u);
+      return u;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const cache = await leerCache<UsuarioPublico>(`usuario:${id}`);
+        if (cache) return cache;
+        return {
+          id,
+          nombre_completo: 'Vecino AquiPe',
+          foto_url: null,
+          calificacion_promedio: 4.9,
+          total_resenas: 8,
+          zona: ZONAS_SEMILLA_OFFLINE[0],
+          telefono: '999111222',
+        };
+      }
+      throw e;
+    }
+  },
+
+  // Publicaciones (con fusión de cola offline + caché)
+  publicaciones: async (filtros: {
     tipo?: TipoPublicacion;
     direccion?: Direccion;
     categoria_id?: number;
@@ -322,6 +418,109 @@ export const Api = {
   misPublicaciones: () => api<Publicacion[]>('/publicaciones/mias'),
   crearPublicacion: (datos: NuevaPublicacion) =>
     api<Publicacion>('/publicaciones', { method: 'POST', json: datos }),
+  } = {}): Promise<Publicacion[]> => {
+    const claveEspecifica = `pubs:${filtros.tipo ?? 'ALL'}:${filtros.direccion ?? 'ALL'}`;
+    const enCola = (await obtenerColaPublicaciones()).map((item) => item.publicacionVista);
+
+    try {
+      const remotas = await api<Publicacion[]>(`/publicaciones${query({ limit: 100, ...filtros })}`);
+      await guardarCache(claveEspecifica, remotas);
+      if (!filtros.tipo && !filtros.direccion && !filtros.q) {
+        await guardarCache('pubs:ALL:ALL', remotas);
+      }
+      const extrasOffline = filtrarPublicacionesLocal(enCola, filtros);
+      const idsRemotos = new Set(remotas.map((r) => r.id));
+      return [...extrasOffline.filter((x) => !idsRemotos.has(x.id)), ...remotas];
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const cacheEspecifica = await leerCache<Publicacion[]>(claveEspecifica);
+        const cacheGeneral = await leerCache<Publicacion[]>('pubs:ALL:ALL');
+        const base = cacheEspecifica ?? cacheGeneral ?? PUBLICACIONES_SEMILLA_OFFLINE;
+        const combinadas = [...enCola, ...base];
+        const vistas = new Set<string>();
+        const unicas = combinadas.filter((p) => {
+          if (vistas.has(p.id)) return false;
+          vistas.add(p.id);
+          return true;
+        });
+        return filtrarPublicacionesLocal(unicas, filtros);
+      }
+      throw e;
+    }
+  },
+
+  misPublicaciones: async (): Promise<Publicacion[]> => {
+    const enCola = (await obtenerColaPublicaciones()).map((item) => item.publicacionVista);
+    try {
+      const mias = await api<Publicacion[]>('/publicaciones/mias');
+      await guardarCache('pubs:mias', mias);
+      return [...enCola, ...mias];
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const cache = (await leerCache<Publicacion[]>('pubs:mias')) ?? [];
+        return [...enCola, ...cache];
+      }
+      throw e;
+    }
+  },
+
+  crearPublicacion: async (datos: NuevaPublicacion): Promise<Publicacion> => {
+    try {
+      return await api<Publicacion>('/publicaciones', { method: 'POST', json: datos });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const u = getUsuario();
+        const cat = CATEGORIAS_SEMILLA_OFFLINE.find((c) => c.id === datos.categoria_id) ?? null;
+        const zona = ZONAS_SEMILLA_OFFLINE.find((z) => z.id === datos.zona_id) ?? u?.zona ?? ZONAS_SEMILLA_OFFLINE[0];
+        const pubOffline: Publicacion = {
+          id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          tipo: datos.tipo,
+          direccion: datos.direccion,
+          titulo: datos.titulo,
+          descripcion: datos.descripcion,
+          estado: 'ABIERTA',
+          latitud: datos.latitud ?? zona?.latitud ?? -16.3989,
+          longitud: datos.longitud ?? zona?.longitud ?? -71.535,
+          created_at: new Date().toISOString(),
+          autor: {
+            id: u?.id ?? '00000000-0000-4000-8000-000000000001',
+            nombre_completo: u?.nombre_completo ?? 'Vecino AquiPe',
+            foto_url: u?.foto_url ?? null,
+            calificacion_promedio: u?.calificacion_promedio ?? 5.0,
+            total_resenas: u?.total_resenas ?? 1,
+          },
+          categoria: cat ? { id: cat.id, nombre: cat.nombre, icono: cat.icono } : null,
+          zona: zona ?? null,
+          servicio: datos.servicio
+            ? {
+                tipo_precio: (datos.servicio.tipo_precio as TipoPrecio) ?? 'A_CONVENIR',
+                monto: (datos.servicio.monto as number | null) ?? null,
+                moneda: 'PEN',
+                modalidad: 'DOMICILIO',
+                radio_km: 5,
+                disponibilidad: null,
+                presupuesto_min: null,
+                presupuesto_max: null,
+                urgencia: 'MEDIA',
+              }
+            : null,
+          emergencia: datos.emergencia
+            ? {
+                cantidad: (datos.emergencia.cantidad as number | null) ?? null,
+                unidad: (datos.emergencia.unidad as string | null) ?? null,
+                detalle_cantidad: (datos.emergencia.detalle_cantidad as string | null) ?? null,
+                nivel_urgencia: (datos.emergencia.nivel_urgencia as Urgencia) ?? 'ALTA',
+              }
+            : null,
+          distancia_km: 0.1,
+        };
+        await encolarPublicacionOffline(datos, pubOffline);
+        return pubOffline;
+      }
+      throw e;
+    }
+  },
+
   eliminarPublicacion: (id: string) =>
     api<null>(`/publicaciones/${id}`, { method: 'DELETE' }),
 
@@ -382,4 +581,93 @@ eliminarRecurso: (id: string) =>
   api<null>(`/recursos/${id}`, {
     method: 'DELETE',
   }),
+
+  // Calificaciones y Visto Bueno Vecinal
+  resenasDePublicacion: async (publicacionId: string, autorId?: string): Promise<Resena[]> => {
+    const locales = autorId ? await leerResenasLocales(autorId) : [];
+    try {
+      const remotas = await api<Resena[]>(`/publicaciones/${publicacionId}/resenas`);
+      await guardarCache(`resenas:${publicacionId}`, remotas);
+      const ids = new Set(remotas.map((r) => r.id));
+      return [...locales.filter((l) => !ids.has(l.id)), ...remotas];
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const cache = (await leerCache<Resena[]>(`resenas:${publicacionId}`)) ?? [];
+        return [...locales, ...cache];
+      }
+      return locales;
+    }
+  },
+
+  calificarPublicacion: async (
+    publicacionId: string,
+    autorServicioId: string,
+    datos: { calificacion: number; comentario?: string; etiquetas?: string[] }
+  ): Promise<CalificarRespuesta> => {
+    try {
+      const res = await api<CalificarRespuesta>(`/publicaciones/${publicacionId}/calificar`, {
+        method: 'POST',
+        json: datos,
+      });
+      await guardarResenaLocal(autorServicioId, res.resena);
+      return res;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        const yo = getUsuario();
+        const etiquetasTxt =
+          datos.etiquetas && datos.etiquetas.length > 0
+            ? `[${datos.etiquetas.join(' · ')}] `
+            : '';
+        const comentarioFinal = `${etiquetasTxt}${datos.comentario?.trim() || 'Recomendado por vecino de la zona.'}`;
+        const resenaLocal: Resena = {
+          id: `resena-local-${Date.now()}`,
+          acuerdo_id: `acuerdo-local-${publicacionId}`,
+          calificacion: datos.calificacion,
+          comentario: comentarioFinal,
+          created_at: new Date().toISOString(),
+          autor: {
+            id: yo?.id ?? '00000000-0000-4000-8000-000000000001',
+            nombre_completo: yo?.nombre_completo ?? 'Vecino AquiPe',
+            foto_url: yo?.foto_url ?? null,
+            calificacion_promedio: yo?.calificacion_promedio ?? 5.0,
+            total_resenas: yo?.total_resenas ?? 1,
+          },
+        };
+        const lista = await guardarResenaLocal(autorServicioId, resenaLocal);
+        const suma = lista.reduce((acc, item) => acc + item.calificacion, 0);
+        const promedio = Number((suma / lista.length).toFixed(1));
+        return {
+          resena: resenaLocal,
+          calificacion_promedio: promedio,
+          total_resenas: lista.length,
+          visto_bueno_vecinal: promedio >= 4.0,
+        };
+      }
+      throw e;
+    }
+  },
+
+  // Recursos personales (Perfil > Mis recursos disponibles)
+  misRecursos: async (): Promise<RecursoPersonal[]> => {
+    try {
+      const res = await api<RecursoPersonal[]>('/recursos/mios');
+      await guardarCache('recursos:mios', res);
+      return res;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 0) {
+        return (await leerCache<RecursoPersonal[]>('recursos:mios')) ?? [];
+      }
+      throw e;
+    }
+  },
+
+  crearRecurso: (datos: {
+    nombre: string;
+    descripcion?: string;
+    cantidad?: number;
+    unidad?: string;
+  }) => api<RecursoPersonal>('/recursos', { method: 'POST', json: datos }),
+
+  actualizarRecurso: (id: string, cambios: Partial<{ disponible: boolean; cantidad: number }>) =>
+    api<RecursoPersonal>(`/recursos/${id}`, { method: 'PATCH', json: cambios }),
 };
