@@ -53,6 +53,16 @@ export default function HomeScreen() {
               Iniciar sesión
             </ThemedText>
           </Pressable>
+
+          <Pressable
+            style={[styles.botonLogin, { backgroundColor: '#D9402B', marginTop: 12 }]}
+            onPress={() => router.push('/emergencia-offline')}
+            accessibilityRole="button"
+          >
+            <ThemedText style={styles.textoBoton}>
+              🆘 Modo emergencia (sin internet)
+            </ThemedText>
+          </Pressable>
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>

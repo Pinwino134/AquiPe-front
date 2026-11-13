@@ -432,16 +432,29 @@ export default function Servicios() {
           />
         </Pressable>
 
-        <Text style={styles.titulo}>
-          {t.serviciosBarrio}
+        <Text style={[styles.titulo, { flex: 1 }]}>
+          Servicios de mi barrio
         </Text>
 
-        {offline && (
-          <View style={styles.offlineBadge}>
-            <Ionicons name="cloud-offline-outline" size={13} color={C.blanco} />
-            <Text style={styles.offlineBadgeTxt}>Caché Offline</Text>
-          </View>
-        )}
+        <Pressable
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            backgroundColor: C.principal,
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            borderRadius: 14,
+          }}
+          onPress={() => router.push('/crear-servicio')}
+          accessibilityRole="button"
+          accessibilityLabel="Publicar un servicio"
+        >
+          <Ionicons name="add" size={18} color={C.blanco} />
+          <Text style={{ color: C.blanco, fontWeight: '800', fontSize: 13 }}>
+            Publicar
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.buscador}>
@@ -663,38 +676,26 @@ export default function Servicios() {
         )}
       </ScrollView>
 
-      {/* Botón flotante para que un vecino publique su oficio o servicio */}
-      <Pressable
-        style={styles.fabPublicarServicio}
-        onPress={() => setPublicarVisible(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Ofrecer mi servicio"
-      >
-        <Ionicons name="add-circle" size={22} color={C.blanco} />
-        <Text style={styles.fabPublicarTexto}>
-          Ofrecer mi servicio
-        </Text>
-      </Pressable>
-
-      {/* Modal para publicar un Servicio del Barrio (en <= 3 clics) */}
-      <Modal
-        visible={publicarVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setPublicarVisible(false)}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalFondo}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCaja}>
-            <View style={styles.modalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitulo}>
-                  Promover mi servicio
+              <View style={styles.informacion}>
+                <Text
+                  style={styles.nombreServicio}
+                  numberOfLines={2}
+                  onPress={() =>
+                    router.push({ pathname: '/publicacion', params: { id: servicio.id } })
+                  }
+                  accessibilityRole="link"
+                >
+                  {servicio.nombre}
                 </Text>
-                <Text style={styles.modalSubtitulo}>
-                  Ofrece tu oficio o profesión a los vecinos de tu zona
+
+                <Text
+                  style={styles.profesional}
+                  onPress={() =>
+                    router.push({ pathname: '/usuario', params: { id: servicio.autorId } })
+                  }
+                  accessibilityRole="link"
+                >
+                  {servicio.profesional} ›
                 </Text>
               </View>
 

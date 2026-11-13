@@ -51,6 +51,41 @@ const REGION_INICIAL: Region = {
 // --------------------------------------------------
 // CONVERSIÓN DE PUBLICACIONES
 // --------------------------------------------------
+const ANCHO_PANTALLA = Dimensions.get('window').width;
+const ANCHO_CONTENIDO = ANCHO_PANTALLA - 44;
+
+const opciones = [
+  {
+    nombre: 'Servicios',
+    icono: 'construct',
+    color: '#168BE0',
+    ruta: '/servicios',
+  },
+  {
+    nombre: 'Favores',
+    icono: 'heart',
+    color: '#F05A7E',
+    ruta: '/favores',
+  },
+  {
+    nombre: 'Mapa',
+    icono: 'location',
+    color: '#18B69A',
+    ruta: '/mapa',
+  },
+  {
+    nombre: 'Emergencias',
+    icono: 'warning',
+    color: '#F28B30',
+    ruta: '/emergencias',
+  },
+  {
+    nombre: 'Actividad',
+    icono: 'swap-horizontal',
+    color: '#7A5AF0',
+    ruta: '/actividad',
+  },
+] as const;
 
 type TarjetaPublicacion = TarjetaPublicacionProps;
 
@@ -81,7 +116,17 @@ export default function Inicio() {
   const [ubicacionPermitida, setUbicacionPermitida] = useState(false);
 
   const [busqueda, setBusqueda] = useState('');
-  const [tutorialVisible, setTutorialVisible] = useState(false);
+
+  const [crearVisible, setCrearVisible] = useState(false);
+  const [tutorialVisible, setTutorialVisible] =
+    useState(false);
+
+  const [publicacionActual, setPublicacionActual] =
+    useState(0);
+
+  const nombreUsuario =
+    usuario?.nombre_completo.trim().split(' ')[0] ||
+    'visitante';
 
   const [publicacionesUsuario, setPublicacionesUsuario] =
     useState<TarjetaPublicacion[]>([]);
@@ -235,7 +280,7 @@ export default function Inicio() {
     }
 
     if (nombreTab === 'Publicar') {
-      router.push('/publicar');
+      setCrearVisible(true);
       return;
     }
 
@@ -341,11 +386,131 @@ export default function Inicio() {
 
       </ScrollView>
 
-      <BarraNavegacion
-        onSeleccionar={seleccionarTab}
-      />
+      {/* BARRA DE NAVEGACIÓN INFERIOR */}
+      <View style={s.navContainer}>
+        <View style={s.nav}>
+          {tabs.map((tab) => {
+            const activa =
+              tab.nombre === 'Inicio';
 
-      <TutorialModal
+            return (
+              <Pressable
+                key={tab.nombre}
+                style={[
+                  s.navItem,
+                  activa && s.navItemActive,
+                ]}
+                onPress={() =>
+                  seleccionarTab(tab.nombre)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={tab.nombre}
+                accessibilityState={{
+                  selected: activa,
+                }}
+              >
+                <Ionicons
+                  name={tab.icono}
+                  size={24}
+                  color={
+                    activa
+                      ? C.blanco
+                      : C.secundario
+                  }
+                />
+
+                {activa && (
+                  <Text style={s.navActiveText}>
+                    {tab.nombre}
+                  </Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* TUTORIAL */}
+      <Modal
+        visible={crearVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCrearVisible(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
+          onPress={() => setCrearVisible(false)}
+        >
+          <View
+            style={{
+              backgroundColor: '#fff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: 20,
+              paddingBottom: 34,
+              gap: 12,
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#243746' }}>
+              ¿Qué quieres publicar?
+            </Text>
+            {[
+              {
+                t: 'Crear servicio',
+                d: 'Ofrece tu trabajo con precio o busca un profesional',
+                i: 'construct' as const,
+                c: '#168BE0',
+                r: '/crear-servicio' as const,
+              },
+              {
+                t: 'Crear solicitud',
+                d: 'Pide ayuda a tus vecinos (herramientas, apoyo, donaciones)',
+                i: 'hand-left' as const,
+                c: '#F05A7E',
+                r: '/publicar' as const,
+              },
+            ].map((o) => (
+              <Pressable
+                key={o.t}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: 14,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: '#DFE7E2',
+                }}
+                onPress={() => {
+                  setCrearVisible(false);
+                  router.push(o.r);
+                }}
+                accessibilityRole="button"
+              >
+                <View
+                  style={{
+                    width: 46,
+                    height: 46,
+                    borderRadius: 14,
+                    backgroundColor: o.c + '22',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Ionicons name={o.i} size={24} color={o.c} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#243746' }}>{o.t}</Text>
+                  <Text style={{ fontSize: 13, color: '#526A67' }}>{o.d}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#526A67" />
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
         visible={tutorialVisible}
         onClose={() => setTutorialVisible(false)}
       />

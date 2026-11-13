@@ -19,8 +19,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import TutorialModal from '@/components/inicio/TutorialModal';
 
-import { Api, type Publicacion } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import {
+  SelectorUbicacion,
+  type UbicacionElegida,
+} from '@/components/selector-ubicacion';
+import { Api, type Publicacion, type Recurso } from '@/lib/api';
 import { setUsuario, useUsuario } from '@/lib/session';
 import {
   ESTADO_TEXTO,
@@ -258,6 +262,7 @@ export default function Perfil() {
   const [telefonoTemporal, setTelefonoTemporal] =
     useState(telefono);
 
+  const [ubicTemp, setUbicTemp] = useState<UbicacionElegida | null>(null);
   const [zonaTemporal, setZonaTemporal] =
     useState(zona);
 
@@ -277,14 +282,14 @@ export default function Perfil() {
     setNombreTemporal(nombre);
     setTelefonoTemporal(telefono);
     setZonaTemporal(zona);
+    setUbicTemp(null);
     setEditarPerfil(true);
   };
 
   const guardarPerfil = async () => {
     if (
       !nombreTemporal.trim() ||
-      !telefonoTemporal.trim() ||
-      !zonaTemporal.trim()
+      !telefonoTemporal.trim()
     ) {
       Alert.alert(
         'Campos incompletos',
@@ -294,23 +299,17 @@ export default function Perfil() {
     }
 
     try {
-      const zonaId = await zonaIdPorNombre(zonaTemporal);
-
-      if (zonaId == null) {
-        const zonas = await Api.zonas();
-        Alert.alert(
-          'Zona no encontrada',
-          `Escribe una de estas zonas: ${zonas
-            .map((z) => z.nombre)
-            .join(', ')}.`
-        );
-        return;
-      }
-
       const actualizado = await Api.actualizarPerfil({
         nombre_completo: nombreTemporal.trim(),
         telefono: telefonoTemporal.trim(),
-        zona_id: zonaId,
+        // Solo si eligió un punto nuevo en el mapa se cambia la zona y la ubicación
+        ...(ubicTemp
+          ? {
+              latitud: ubicTemp.latitude,
+              longitud: ubicTemp.longitude,
+              ...(ubicTemp.zonaId != null ? { zona_id: ubicTemp.zonaId } : {}),
+            }
+          : {}),
       });
 
       setUsuario(actualizado);
@@ -1136,12 +1135,10 @@ export default function Perfil() {
                 Zona o barrio
               </Text>
 
-              <TextInput
-                style={s.input}
-                value={zonaTemporal}
-                onChangeText={setZonaTemporal}
-                placeholder="Tu zona"
-                placeholderTextColor={C.secundario}
+              <SelectorUbicacion
+                value={ubicTemp}
+                onChange={setUbicTemp}
+                placeholder={`${zonaTemporal || 'Sin zona'} · toca para cambiar en el mapa`}
               />
 
               <Pressable

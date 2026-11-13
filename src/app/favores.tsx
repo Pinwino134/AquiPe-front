@@ -21,6 +21,11 @@ import { Api, ApiError, type Publicacion } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useUsuario } from '@/lib/session';
 import {
+  SelectorUbicacion,
+  type UbicacionElegida,
+} from '@/components/selector-ubicacion';
+import { Api, type Publicacion } from '@/lib/api';
+import {
   emojiCategoria,
   mostrarError,
   tiempoRelativo,
@@ -152,6 +157,13 @@ export default function Favores() {
     }, [cargar])
   );
 
+  const [modalVisible, setModalVisible] =
+    useState(false);
+
+  const [titulo, setTitulo] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [ubic, setUbic] = useState<UbicacionElegida | null>(null);
+
   const filtrados = favores.filter(
     (favor) => favor.tipo === pestana
   );
@@ -265,10 +277,14 @@ export default function Favores() {
           pestana === 'necesito' ? 'SOLICITA' : 'OFRECE',
         titulo: titulo.trim().slice(0, 80),
         descripcion: (nombre.trim() || titulo.trim()).slice(0, 1000),
+        ...(ubic
+          ? { zona_id: ubic.zonaId, latitud: ubic.latitude, longitud: ubic.longitude }
+          : {}),
       });
 
       setTitulo('');
       setNombre('');
+      setUbic(null);
       setModalVisible(false);
       await cargar();
 
@@ -725,6 +741,10 @@ export default function Favores() {
               onChangeText={setNombre}
               maxLength={500}
             />
+
+            <Text style={styles.label}>Ubicación (opcional)</Text>
+
+            <SelectorUbicacion value={ubic} onChange={setUbic} />
 
             <Pressable
               style={styles.botonPublicar}

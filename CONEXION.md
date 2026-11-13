@@ -63,3 +63,37 @@ Comprueba que el backend responde abriendo `http://TU_IP:8000/health` en el nave
 - *Android emulador* → usa `http://10.0.2.2:8000` en `EXPO_PUBLIC_API_URL`.
 - *Build de producción* → Android e iOS bloquean `http://` sin cifrar; usa HTTPS al desplegar.
 - *"Falta el header X-User-Id"* → la sesión se perdió; vuelve a iniciar sesión.
+
+## Novedades (v2)
+
+- `src/components/selector-ubicacion.tsx`: campo con mapa para elegir ubicación (calcula zona cercana y dirección). Usado en Publicar, Favores, Emergencias y Crear servicio.
+- `src/app/crear-servicio.tsx`: publicar servicio (OFRECE: precio fijo/por hora/a convenir, radio, disponibilidad · SOLICITA: presupuesto y urgencia). Botón "Publicar" en Servicios.
+- `src/app/actividad.tsx` (acceso "Actividad" en Inicio): respuestas recibidas (aceptar/rechazar), enviadas (retirar), acuerdos (iniciar/completar/cancelar/reseñar) y mis anuncios (pausar/reactivar/cancelar).
+- `src/lib/api.ts`: añadidos respuestas, acuerdos, reseñas, PATCH publicaciones y PUT proveedor.
+- Al primer `npx expo start` se regeneran los tipos de rutas (desaparece el error de tsc por `/actividad` y `/crear-servicio`).
+
+## Novedades (v3)
+
+- `src/app/usuario.tsx`: perfil público (`/usuario?id=<uuid>` o `id=yo`): calificación con estrellas, reseñas recibidas, bio del proveedor, botones Llamar / WhatsApp si comparte teléfono.
+- `src/app/proveedor.tsx`: editar biografía, años de experiencia y disponibilidad (`PUT /usuarios/me/proveedor`).
+- Los nombres en Servicios y Actividad abren el perfil del usuario; en Actividad hay un icono de perfil propio arriba a la derecha.
+- Calificar: Actividad → Acuerdos → acuerdo COMPLETADO → "Dejar reseña" (1–5 estrellas + comentario).
+
+## Novedades (v4)
+
+- **Detalle de publicación** (`src/app/publicacion.tsx`): precio, modalidad, radio, disponibilidad, mapa, autor con reseñas y formulario para postularse / contratar / ofrecer ayuda con precio propuesto. Se abre al tocar el título en Servicios o Actividad.
+- **Perfil**: la zona ahora se cambia eligiendo el punto en el mapa (guarda `zona_id`, `latitud` y `longitud`).
+
+## Novedades (v5)
+
+- Se quitó la sesión persistente (la sesión vuelve a vivir solo en memoria).
+- Botón central "Publicar" de Inicio: abre un menú con **Crear servicio** y **Crear solicitud**.
+- Emergencias: números de emergencia con botón de llamada y mapa general con los reportes y recursos.
+
+## Novedades (v6) — Modo emergencia sin conexión
+
+- `src/app/emergencia-offline.tsx`: no requiere sesión ni internet. Incluye SOS por SMS con enlace y coordenadas GPS, números de emergencia con llamada, contactos propios, datos médicos, guías de primeros auxilios/sismo/huaico/incendio y los puestos de ayuda guardados.
+- Datos locales con `@react-native-async-storage/async-storage` (`src/lib/offline.ts`). Los puestos se guardan solos cada vez que se abre Emergencias con internet.
+- Entradas: pantalla de bienvenida, login, Emergencias y el aviso "Sin conexión" cuando falla la red.
+- Límite: el mapa necesita internet; sin red se muestran coordenadas y enlaces para abrir en la app de mapas.
+- Nueva dependencia: `npm install`.

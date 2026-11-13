@@ -20,10 +20,11 @@ import { Api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { getUsuario } from '@/lib/session';
 import {
-  mostrarError,
-  obtenerUbicacion,
-  zonaIdPorNombre,
-} from '@/lib/ui';
+  SelectorUbicacion,
+  type UbicacionElegida,
+} from '@/components/selector-ubicacion';
+import { Api } from '@/lib/api';
+import { mostrarError } from '@/lib/ui';
 
 const C = {
   principal: '#146C67',
@@ -166,6 +167,7 @@ export default function Publicar() {
   const [zona, setZona] = useState(usuario?.zona?.nombre ?? 'Cercado');
   const [tipoPrecio, setTipoPrecio] = useState<'FIJO' | 'POR_HORA' | 'A_CONVENIR'>('FIJO');
   const [monto, setMonto] = useState('40');
+  const [ubic, setUbic] = useState<UbicacionElegida | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   const listaCategorias =
@@ -215,10 +217,10 @@ export default function Publicar() {
         return;
       }
 
-      if (!zona.trim()) {
+      if (!ubic) {
         Alert.alert(
-          'Falta la zona',
-          'Indica el barrio o zona.'
+          'Falta la ubicación',
+          'Marca en el mapa dónde necesitas la ayuda.'
         );
         return;
       }
@@ -254,6 +256,7 @@ export default function Publicar() {
       const zonaId = await zonaIdPorNombre(zona);
       const pos = await obtenerUbicacion();
       const montoNum = parseFloat(monto);
+      if (!ubic) return;
 
       await Api.crearPublicacion({
         tipo: tipoApi,
@@ -282,6 +285,11 @@ export default function Publicar() {
               },
             }
           : {}),
+        titulo: titulo.trim(),
+        descripcion: descripcion.trim().slice(0, 1000),
+        zona_id: ubic.zonaId,
+        latitud: ubic.latitude,
+        longitud: ubic.longitude,
       });
 
       Alert.alert(
@@ -612,7 +620,7 @@ export default function Publicar() {
               )}
 
               <Text style={s.label}>
-                Barrio o zona
+                Ubicación (elige en el mapa)
               </Text>
 
               <View style={s.locationInput}>
@@ -630,6 +638,18 @@ export default function Publicar() {
                   onChangeText={setZona}
                   maxLength={100}
                 />
+              <SelectorUbicacion value={ubic} onChange={setUbic} />
+
+              <View style={s.infoBox}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={21}
+                  color={C.principal}
+                />
+                <Text style={s.infoText}>
+                  Evita publicar direcciones exactas
+                  o información personal sensible.
+                </Text>
               </View>
             </>
           )}
@@ -703,7 +723,7 @@ export default function Publicar() {
                     color={C.principal}
                   />
                   <Text style={s.summaryValue}>
-                    {zona}
+                    {ubic?.etiqueta}
                   </Text>
                 </View>
               </View>

@@ -82,7 +82,9 @@ export function activarSesionOfflineEmergencia(nombre = 'Vecino AquiPe', telefon
   setUsuario(usuarioOffline);
   return usuarioOffline;
 }
+  oyentes.forEach((fn) => fn());
 
+}
 const suscribir = (fn: () => void) => {
   oyentes.add(fn);
   return () => {
