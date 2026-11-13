@@ -1,20 +1,24 @@
-
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import TutorialModal from '@/components/inicio/TutorialModal';
+
+import { Api } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
+import { getUsuario } from '@/lib/session';
 import {
   SelectorUbicacion,
   type UbicacionElegida,
@@ -32,46 +36,171 @@ const C = {
   borde: '#DFE7E2',
 };
 
-type Categoria =
-  | 'Herramienta'
-  | 'Apoyo'
-  | 'Donación'
-  | 'Otro';
+// Misma barra inferior de Inicio y Perfil, con Publicar seleccionado.
+const tabsPublicar = [
+  { nombre: 'Inicio', key: 'inicio', icono: 'home-outline' },
+  { nombre: 'Publicar', key: 'publicar', icono: 'add-circle-outline' },
+  { nombre: 'Tutorial', key: 'tutorial', icono: 'book-outline' },
+  { nombre: 'Perfil', key: 'perfil', icono: 'person-outline' },
+] as const;
 
-const categorias = [
+type ModoPublicacion =
+  | 'OFRECER_SERVICIO'
+  | 'PEDIR_FAVOR'
+  | 'OFRECER_FAVOR';
+
+const MODOS: {
+  id: ModoPublicacion;
+  titulo: string;
+  subtitulo: string;
+  icono: keyof typeof Ionicons.glyphMap;
+}[] = [
   {
-    nombre: 'Herramienta' as Categoria,
-    icono: 'build' as const,
+    id: 'OFRECER_SERVICIO',
+    titulo: 'Promover mi Servicio',
+    subtitulo: 'Ofrece tu oficio o profesión en el barrio',
+    icono: 'construct-outline',
   },
   {
-    nombre: 'Apoyo' as Categoria,
-    icono: 'people' as const,
+    id: 'PEDIR_FAVOR',
+    titulo: 'Pedir un Favor / Ayuda',
+    subtitulo: 'Solicita préstamo o apoyo solidario',
+    icono: 'hand-left-outline',
   },
   {
-    nombre: 'Donación' as Categoria,
-    icono: 'cube' as const,
-  },
-  {
-    nombre: 'Otro' as Categoria,
-    icono: 'grid' as const,
+    id: 'OFRECER_FAVOR',
+    titulo: 'Ofrecer Ayuda Solidaria',
+    subtitulo: 'Comparte herramientas, tiempo o donación',
+    icono: 'heart-outline',
   },
 ];
 
+const CATEGORIAS_SERVICIO = [
+  { nombre: 'Hogar', icono: 'home' as const },
+  { nombre: 'Salud', icono: 'medkit' as const },
+  { nombre: 'Educación', icono: 'book' as const },
+  { nombre: 'Tecnología', icono: 'laptop' as const },
+  { nombre: 'Seguridad', icono: 'videocam' as const },
+  { nombre: 'Otro', icono: 'grid' as const },
+];
+
+const CATEGORIAS_FAVOR = [
+  { nombre: 'Herramienta', icono: 'build' as const },
+  { nombre: 'Apoyo', icono: 'people' as const },
+  { nombre: 'Donación', icono: 'cube' as const },
+  { nombre: 'Otro', icono: 'grid' as const },
+];
+
+const PLANTILLAS_RAPIDAS: Record<
+  ModoPublicacion,
+  { chip: string; categoria: string; titulo: string; descripcion: string; monto?: string }[]
+> = {
+  OFRECER_SERVICIO: [
+    {
+      chip: '🔧 Gasfitería',
+      categoria: 'Hogar',
+      titulo: 'Gasfitero del barrio · Fugas y tuberías',
+      descripcion: 'Reparación rápida de fugas, caños, duchas y tanques elevados.',
+      monto: '40',
+    },
+    {
+      chip: '⚡ Electricista',
+      categoria: 'Hogar',
+      titulo: 'Electricista a domicilio y urgencias',
+      descripcion: 'Instalaciones eléctricas, cortocircuitos, tableros y tomacorrientes.',
+      monto: '45',
+    },
+    {
+      chip: '🐾 Paseador de mascotas',
+      categoria: 'Otro',
+      titulo: 'Paseador de mascotas de confianza',
+      descripcion: 'Paseos diarios por parques del barrio con reporte a los dueños.',
+      monto: '15',
+    },
+    {
+      chip: '📚 Clases particulares',
+      categoria: 'Educación',
+      titulo: 'Clases de matemáticas y apoyo escolar',
+      descripcion: 'Refuerzo escolar primaria y secundaria a domicilio.',
+      monto: '25',
+    },
+  ],
+  PEDIR_FAVOR: [
+    {
+      chip: '🪜 Necesito escalera',
+      categoria: 'Herramienta',
+      titulo: 'Préstamo de escalera por 1 hora',
+      descripcion: 'Necesito cambiar un foco alto en mi patio hoy por la tarde.',
+    },
+    {
+      chip: '🚗 Movilidad al hospital',
+      categoria: 'Apoyo',
+      titulo: 'Apoyo con movilidad hacia el hospital',
+      descripcion: '¿Algún vecino sale temprano hacia el centro para acercar a un familiar?',
+    },
+  ],
+  OFRECER_FAVOR: [
+    {
+      chip: '🧰 Presto herramientas',
+      categoria: 'Herramienta',
+      titulo: 'Presto caja de herramientas a vecinos',
+      descripcion: 'Taladro, martillo y llaves disponibles sin costo para emergencias domésticas.',
+    },
+    {
+      chip: '📦 Dono libros escolares',
+      categoria: 'Donación',
+      titulo: 'Donación de libros de primaria y secundaria',
+      descripcion: 'En buen estado para estudiantes del barrio que los necesiten.',
+    },
+  ],
+};
+
 export default function Publicar() {
+  const usuario = getUsuario();
+  const { t } = useI18n();
+  const [tutorialVisible, setTutorialVisible] = useState(false);
   const [paso, setPaso] = useState(1);
-  const [categoria, setCategoria] =
-    useState<Categoria | null>(null);
+  const [modo, setModo] = useState<ModoPublicacion>('OFRECER_SERVICIO');
+  const [categoria, setCategoria] = useState<string | null>(null);
   const [titulo, setTitulo] = useState('');
   const [descripcion, setDescripcion] = useState('');
+  const [zona, setZona] = useState(usuario?.zona?.nombre ?? 'Cercado');
+  const [tipoPrecio, setTipoPrecio] = useState<'FIJO' | 'POR_HORA' | 'A_CONVENIR'>('FIJO');
+  const [monto, setMonto] = useState('40');
   const [ubic, setUbic] = useState<UbicacionElegida | null>(null);
   const [enviando, setEnviando] = useState(false);
+
+  const listaCategorias =
+    modo === 'OFRECER_SERVICIO' ? CATEGORIAS_SERVICIO : CATEGORIAS_FAVOR;
+
+  const cambiarModo = (nuevo: ModoPublicacion) => {
+    setModo(nuevo);
+    setCategoria(null);
+  };
+
+  const aplicarPlantilla = (pl: {
+    categoria: string;
+    titulo: string;
+    descripcion: string;
+    monto?: string;
+  }) => {
+    setCategoria(pl.categoria);
+    setTitulo(pl.titulo);
+    setDescripcion(pl.descripcion);
+    if (pl.monto) {
+      setMonto(pl.monto);
+      setTipoPrecio('FIJO');
+    }
+    if (!zona.trim()) setZona('Cercado');
+    setPaso(2);
+  };
 
   const siguiente = () => {
     if (paso === 1) {
       if (!categoria) {
         Alert.alert(
-          'Selecciona una opción',
-          'Indica qué tipo de ayuda necesitas.'
+          'Selecciona una categoría',
+          'Indica la categoría o toca una plantilla rápida arriba.'
         );
         return;
       }
@@ -113,18 +242,49 @@ export default function Publicar() {
     setEnviando(true);
 
     try {
-      // Las categorías de esta pantalla (Herramienta, Apoyo, Donación, Otro)
-      // existen en el backend como categorías de tipo FAVOR.
-      const categoriasApi = await Api.categorias('FAVOR');
-      const categoriaId =
-        categoriasApi.find((c) => c.nombre === categoria)?.id ?? null;
+      const esServicio = modo === 'OFRECER_SERVICIO';
+      const tipoApi = esServicio ? 'SERVICIO' : 'FAVOR';
+      const direccionApi =
+        modo === 'PEDIR_FAVOR' ? 'SOLICITA' : 'OFRECE';
 
+      const categoriasApi = await Api.categorias(tipoApi);
+      const categoriaId =
+        categoriasApi.find((c) => c.nombre === categoria)?.id ??
+        categoriasApi[0]?.id ??
+        null;
+
+      const zonaId = await zonaIdPorNombre(zona);
+      const pos = await obtenerUbicacion();
+      const montoNum = parseFloat(monto);
       if (!ubic) return;
 
       await Api.crearPublicacion({
-        tipo: 'FAVOR',
-        direccion: 'SOLICITA',
+        tipo: tipoApi,
+        direccion: direccionApi,
         categoria_id: categoriaId,
+        titulo: titulo.trim().slice(0, 80),
+        descripcion: (
+          zonaId
+            ? descripcion.trim()
+            : `${descripcion.trim()}\nZona: ${zona.trim()}`
+        ).slice(0, 1000),
+        zona_id: zonaId ?? 1,
+        latitud: pos.latitude,
+        longitud: pos.longitude,
+        ...(esServicio
+          ? {
+              servicio: {
+                tipo_precio: tipoPrecio,
+                monto:
+                  tipoPrecio === 'A_CONVENIR' || Number.isNaN(montoNum)
+                    ? null
+                    : montoNum,
+                modalidad: 'DOMICILIO',
+                radio_km: 5,
+                urgencia: 'MEDIA',
+              },
+            }
+          : {}),
         titulo: titulo.trim(),
         descripcion: descripcion.trim().slice(0, 1000),
         zona_id: ubic.zonaId,
@@ -133,11 +293,18 @@ export default function Publicar() {
       });
 
       Alert.alert(
-        '¡Solicitud publicada!',
-        'Tu solicitud ya es visible para otros vecinos.',
+        esServicio ? '¡Servicio publicado!' : '¡Favor publicado!',
+        esServicio
+          ? 'Tu servicio ya aparece en "Servicios de mi barrio" y en el mapa para tus vecinos.'
+          : 'Tu publicación ya es visible en la Cadena de Favores.',
         [
           {
-            text: 'Entendido',
+            text: esServicio ? 'Ver en Servicios' : 'Ver en Favores',
+            onPress: () =>
+              router.replace(esServicio ? '/servicios' : '/favores'),
+          },
+          {
+            text: 'Ir al Inicio',
             onPress: () => router.replace('/inicio'),
           },
         ]
@@ -153,9 +320,7 @@ export default function Publicar() {
     <SafeAreaView style={s.page}>
       <KeyboardAvoidingView
         style={s.flex}
-        behavior={
-          Platform.OS === 'ios' ? 'padding' : undefined
-        }
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={s.header}>
           <Pressable
@@ -171,7 +336,7 @@ export default function Publicar() {
           </Pressable>
 
           <Text style={s.headerTitle}>
-            Publicar solicitud
+            Publicar en mi barrio
           </Text>
         </View>
 
@@ -184,15 +349,13 @@ export default function Publicar() {
               <View
                 style={[
                   s.progressCircle,
-                  numero <= paso &&
-                    s.progressCircleActive,
+                  numero <= paso && s.progressCircleActive,
                 ]}
               >
                 <Text
                   style={[
                     s.progressNumber,
-                    numero <= paso &&
-                      s.progressNumberActive,
+                    numero <= paso && s.progressNumberActive,
                   ]}
                 >
                   {numero}
@@ -203,8 +366,7 @@ export default function Publicar() {
                 <View
                   style={[
                     s.progressLine,
-                    numero < paso &&
-                      s.progressLineActive,
+                    numero < paso && s.progressLineActive,
                   ]}
                 />
               )}
@@ -221,18 +383,94 @@ export default function Publicar() {
           {paso === 1 && (
             <>
               <Text style={s.title}>
-                1. ¿Qué necesitas?
+                1. ¿Qué deseas publicar?
               </Text>
 
-              <Text style={s.subtitle}>
-                Selecciona el tipo de ayuda que buscas
-                en tu comunidad.
+              <View style={s.modosCol}>
+                {MODOS.map((m) => {
+                  const activo = modo === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      style={[
+                        s.modoCard,
+                        activo && s.modoCardActivo,
+                      ]}
+                      onPress={() => cambiarModo(m.id)}
+                    >
+                      <View
+                        style={[
+                          s.modoIconBox,
+                          activo && s.modoIconBoxActivo,
+                        ]}
+                      >
+                        <Ionicons
+                          name={m.icono}
+                          size={22}
+                          color={activo ? C.principal : C.principal}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            s.modoTitulo,
+                            activo && s.modoTituloActivo,
+                          ]}
+                        >
+                          {m.titulo}
+                        </Text>
+                        <Text
+                          style={[
+                            s.modoSub,
+                            activo && s.modoSubActivo,
+                          ]}
+                        >
+                          {m.subtitulo}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={
+                          activo
+                            ? 'radio-button-on'
+                            : 'radio-button-off'
+                        }
+                        size={20}
+                        color={activo ? C.blanco : C.secundario}
+                      />
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Plantillas en 1 toque para cumplir <= 3 clics */}
+              <Text style={s.plantillasHeading}>
+                ⚡ Autocompletar con 1 toque:
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.plantillasScroll}
+              >
+                {PLANTILLAS_RAPIDAS[modo].map((pl) => (
+                  <Pressable
+                    key={pl.chip}
+                    style={s.plantillaPill}
+                    onPress={() => aplicarPlantilla(pl)}
+                  >
+                    <Text style={s.plantillaPillTxt}>
+                      {pl.chip}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <Text style={s.label}>
+                O elige una categoría:
               </Text>
 
               <View style={s.categoryGrid}>
-                {categorias.map((item) => {
-                  const activo =
-                    categoria === item.nombre;
+                {listaCategorias.map((item) => {
+                  const activo = categoria === item.nombre;
 
                   return (
                     <Pressable
@@ -241,29 +479,20 @@ export default function Publicar() {
                         s.categoryCard,
                         activo && s.categoryActive,
                       ]}
-                      onPress={() =>
-                        setCategoria(item.nombre)
-                      }
+                      onPress={() => setCategoria(item.nombre)}
                       accessibilityRole="button"
-                      accessibilityState={{
-                        selected: activo,
-                      }}
+                      accessibilityState={{ selected: activo }}
                     >
                       <Ionicons
                         name={item.icono}
-                        size={40}
-                        color={
-                          activo
-                            ? C.blanco
-                            : C.principal
-                        }
+                        size={34}
+                        color={activo ? C.blanco : C.principal}
                       />
 
                       <Text
                         style={[
                           s.categoryText,
-                          activo &&
-                            s.categoryTextActive,
+                          activo && s.categoryTextActive,
                         ]}
                       >
                         {item.nombre}
@@ -288,12 +517,7 @@ export default function Publicar() {
           {paso === 2 && (
             <>
               <Text style={s.title}>
-                2. Cuéntanos más
-              </Text>
-
-              <Text style={s.subtitle}>
-                Describe lo que necesitas para que
-                otros vecinos puedan ayudarte.
+                2. Detalles de tu publicación
               </Text>
 
               <View style={s.selectedCategory}>
@@ -303,17 +527,23 @@ export default function Publicar() {
                   color={C.principal}
                 />
                 <Text style={s.selectedCategoryText}>
-                  {categoria}
+                  {MODOS.find((m) => m.id === modo)?.titulo} · {categoria}
                 </Text>
               </View>
 
               <Text style={s.label}>
-                Título de la solicitud
+                {modo === 'OFRECER_SERVICIO'
+                  ? 'Título de tu oficio o servicio'
+                  : 'Título del favor'}
               </Text>
 
               <TextInput
                 style={s.input}
-                placeholder="Ej. Necesito una escalera"
+                placeholder={
+                  modo === 'OFRECER_SERVICIO'
+                    ? 'Ej. Gasfitero a domicilio · Reparación de fugas'
+                    : 'Ej. Necesito una escalera por 1 hora'
+                }
                 placeholderTextColor={C.secundario}
                 value={titulo}
                 onChangeText={setTitulo}
@@ -326,7 +556,7 @@ export default function Publicar() {
 
               <TextInput
                 style={[s.input, s.textarea]}
-                placeholder="Explica qué necesitas, para cuándo y cualquier detalle importante..."
+                placeholder="Explica qué ofreces o necesitas, disponibilidad y detalles..."
                 placeholderTextColor={C.secundario}
                 value={descripcion}
                 onChangeText={setDescripcion}
@@ -335,10 +565,79 @@ export default function Publicar() {
                 maxLength={500}
               />
 
+              {modo === 'OFRECER_SERVICIO' && (
+                <>
+                  <Text style={s.label}>
+                    Tarifa para vecinos
+                  </Text>
+                  <View style={s.tarifasRow}>
+                    {(
+                      [
+                        { id: 'FIJO', label: 'Precio base' },
+                        { id: 'POR_HORA', label: 'Por hora' },
+                        { id: 'A_CONVENIR', label: 'A convenir' },
+                      ] as const
+                    ).map((tp) => {
+                      const act = tipoPrecio === tp.id;
+                      return (
+                        <Pressable
+                          key={tp.id}
+                          style={[
+                            s.tarifaChip,
+                            act && s.tarifaChipActiva,
+                          ]}
+                          onPress={() => setTipoPrecio(tp.id)}
+                        >
+                          <Text
+                            style={[
+                              s.tarifaChipTxt,
+                              act && s.tarifaChipTxtActiva,
+                            ]}
+                          >
+                            {tp.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {tipoPrecio !== 'A_CONVENIR' && (
+                    <>
+                      <Text style={s.label}>
+                        Monto en Soles (S/)
+                      </Text>
+                      <TextInput
+                        style={s.input}
+                        placeholder="Ej. 40"
+                        placeholderTextColor={C.secundario}
+                        keyboardType="numeric"
+                        value={monto}
+                        onChangeText={setMonto}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+
               <Text style={s.label}>
                 Ubicación (elige en el mapa)
               </Text>
 
+              <View style={s.locationInput}>
+                <Ionicons
+                  name="location-outline"
+                  size={20}
+                  color={C.principal}
+                />
+
+                <TextInput
+                  style={s.locationText}
+                  placeholder="Ej. Cercado, Yanahuara, Cayma"
+                  placeholderTextColor={C.secundario}
+                  value={zona}
+                  onChangeText={setZona}
+                  maxLength={100}
+                />
               <SelectorUbicacion value={ubic} onChange={setUbic} />
 
               <View style={s.infoBox}>
@@ -358,19 +657,22 @@ export default function Publicar() {
           {paso === 3 && (
             <>
               <Text style={s.title}>
-                3. Revisa tu solicitud
+                3. Revisa y publica
               </Text>
 
               <Text style={s.subtitle}>
-                Comprueba la información antes de
-                publicarla.
+                Confirma que los datos estén listos para tus vecinos.
               </Text>
 
               <View style={s.summaryCard}>
                 <View style={s.summaryHeader}>
                   <View style={s.summaryIcon}>
                     <Ionicons
-                      name="document-text-outline"
+                      name={
+                        modo === 'OFRECER_SERVICIO'
+                          ? 'construct-outline'
+                          : 'heart-outline'
+                      }
                       size={25}
                       color={C.principal}
                     />
@@ -381,7 +683,7 @@ export default function Publicar() {
                       {titulo}
                     </Text>
                     <Text style={s.summaryCategory}>
-                      {categoria}
+                      {MODOS.find((m) => m.id === modo)?.titulo} · {categoria}
                     </Text>
                   </View>
                 </View>
@@ -394,6 +696,21 @@ export default function Publicar() {
                 <Text style={s.summaryValue}>
                   {descripcion}
                 </Text>
+
+                {modo === 'OFRECER_SERVICIO' && (
+                  <>
+                    <Text style={s.summaryLabel}>
+                      Tarifa referencial
+                    </Text>
+                    <Text style={s.summaryValue}>
+                      {tipoPrecio === 'A_CONVENIR'
+                        ? 'A convenir con el vecino'
+                        : tipoPrecio === 'POR_HORA'
+                          ? `S/ ${monto} por hora`
+                          : `S/ ${monto} (precio base)`}
+                    </Text>
+                  </>
+                )}
 
                 <Text style={s.summaryLabel}>
                   Ubicación
@@ -409,29 +726,6 @@ export default function Publicar() {
                     {ubic?.etiqueta}
                   </Text>
                 </View>
-
-                <View style={s.statusBox}>
-                  <Ionicons
-                    name="time-outline"
-                    size={17}
-                    color={C.principal}
-                  />
-                  <Text style={s.statusText}>
-                    Estado inicial: Publicado
-                  </Text>
-                </View>
-              </View>
-
-              <View style={s.infoBox}>
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={22}
-                  color={C.principal}
-                />
-                <Text style={s.infoText}>
-                  Tu solicitud será visible para
-                  los vecinos de tu zona.
-                </Text>
               </View>
 
               <Pressable
@@ -455,16 +749,16 @@ export default function Publicar() {
           <Pressable
             style={[s.nextButton, enviando && { opacity: 0.7 }]}
             disabled={enviando}
-            onPress={
-              paso === 3 ? publicar : siguiente
-            }
+            onPress={paso === 3 ? publicar : siguiente}
           >
             <Text style={s.nextText}>
               {enviando
                 ? 'Publicando…'
                 : paso === 3
-                ? 'Publicar solicitud'
-                : 'Siguiente'}
+                  ? modo === 'OFRECER_SERVICIO'
+                    ? 'Publicar mi servicio'
+                    : 'Publicar en Cadena de Favores'
+                  : 'Siguiente'}
             </Text>
 
             <Ionicons
@@ -483,6 +777,50 @@ export default function Publicar() {
           </Text>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Barra inferior: mismo diseño que Inicio y Perfil, con Publicar activo */}
+      <View style={s.navContainer}>
+        <View style={s.nav}>
+          {tabsPublicar.map((tab) => {
+            const activa = tab.nombre === 'Publicar';
+            const etiqueta = t[tab.key];
+
+            return (
+              <Pressable
+                key={tab.nombre}
+                style={[s.navItem, activa && s.navItemActive]}
+                onPress={() => {
+                  if (tab.nombre === 'Inicio') {
+                    router.replace('/inicio');
+                  } else if (tab.nombre === 'Tutorial') {
+                    setTutorialVisible(true);
+                  } else if (tab.nombre === 'Perfil') {
+                    router.push('/perfil');
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={etiqueta}
+                accessibilityState={{ selected: activa }}
+              >
+                <Ionicons
+                  name={tab.icono}
+                  size={24}
+                  color={activa ? C.blanco : C.secundario}
+                />
+                {activa && (
+                  <Text style={s.navActiveText}>{etiqueta}</Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Tutorial visual compartido con Inicio */}
+      <TutorialModal
+        visible={tutorialVisible}
+        onClose={() => setTutorialVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -502,7 +840,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 18,
+    paddingBottom: 14,
     gap: 14,
   },
 
@@ -528,7 +866,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 65,
-    marginBottom: 27,
+    marginBottom: 18,
   },
 
   progressGroup: {
@@ -575,36 +913,117 @@ const s = StyleSheet.create({
   },
 
   title: {
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: '900',
     color: C.texto,
-    marginBottom: 9,
+    marginBottom: 12,
   },
 
   subtitle: {
     fontSize: 13,
     lineHeight: 20,
     color: C.secundario,
-    marginBottom: 24,
+    marginBottom: 18,
+  },
+
+  modosCol: {
+    gap: 9,
+    marginBottom: 16,
+  },
+
+  modoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.blanco,
+    borderWidth: 1.5,
+    borderColor: C.borde,
+    borderRadius: 16,
+    padding: 13,
+  },
+
+  modoCardActivo: {
+    backgroundColor: C.principal,
+    borderColor: C.principal,
+  },
+
+  modoIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modoIconBoxActivo: {
+    backgroundColor: C.blanco,
+  },
+
+  modoTitulo: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: C.texto,
+  },
+
+  modoTituloActivo: {
+    color: C.blanco,
+  },
+
+  modoSub: {
+    fontSize: 11,
+    color: C.secundario,
+    marginTop: 2,
+  },
+
+  modoSubActivo: {
+    color: C.verdeClaro,
+  },
+
+  plantillasHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.principal,
+    marginBottom: 8,
+  },
+
+  plantillasScroll: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+
+  plantillaPill: {
+    backgroundColor: C.verdeClaro,
+    borderWidth: 1,
+    borderColor: C.borde,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+
+  plantillaPillTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.principal,
   },
 
   categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 14,
+    rowGap: 12,
   },
 
   categoryCard: {
     width: '48%',
-    height: 140,
+    height: 110,
     borderRadius: 18,
     backgroundColor: C.verdeClaro,
     borderWidth: 1,
     borderColor: C.borde,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 13,
+    gap: 9,
   },
 
   categoryActive: {
@@ -613,7 +1032,7 @@ const s = StyleSheet.create({
   },
 
   categoryText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: C.texto,
   },
@@ -643,11 +1062,11 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 9,
     borderRadius: 12,
-    marginBottom: 23,
+    marginBottom: 18,
   },
 
   selectedCategoryText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     color: C.principal,
   },
@@ -668,12 +1087,43 @@ const s = StyleSheet.create({
     height: 52,
     fontSize: 14,
     color: C.texto,
-    marginBottom: 20,
+    marginBottom: 16,
   },
 
   textarea: {
-    height: 125,
+    height: 105,
     paddingTop: 14,
+  },
+
+  tarifasRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  tarifaChip: {
+    flex: 1,
+    backgroundColor: C.blanco,
+    borderWidth: 1,
+    borderColor: C.borde,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+
+  tarifaChipActiva: {
+    backgroundColor: C.principal,
+    borderColor: C.principal,
+  },
+
+  tarifaChipTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: C.texto,
+  },
+
+  tarifaChipTxtActiva: {
+    color: C.blanco,
   },
 
   locationInput: {
@@ -693,23 +1143,6 @@ const s = StyleSheet.create({
     height: 52,
     fontSize: 14,
     color: C.texto,
-  },
-
-  infoBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    backgroundColor: C.verdeClaro,
-    borderRadius: 14,
-    padding: 14,
-    marginTop: 5,
-  },
-
-  infoText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 19,
-    color: C.secundario,
   },
 
   summaryCard: {
@@ -755,88 +1188,237 @@ const s = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: C.borde,
-    marginVertical: 18,
+    marginVertical: 16,
   },
 
   summaryLabel: {
     fontSize: 12,
     fontWeight: '800',
     color: C.texto,
-    marginBottom: 7,
+    marginBottom: 6,
   },
 
   summaryValue: {
     fontSize: 13,
     color: C.secundario,
     lineHeight: 20,
-    marginBottom: 18,
+    marginBottom: 14,
   },
 
   summaryLocation: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-  },
-
-  statusBox: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: C.verdeClaro,
-    borderRadius: 10,
-    padding: 11,
-  },
-
-  statusText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: C.principal,
+    gap: 6,
   },
 
   editButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 15,
-    marginTop: 14,
+    gap: 7,
+    paddingVertical: 14,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.borde,
+    backgroundColor: C.blanco,
+    marginTop: 8,
   },
 
   editText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     color: C.principal,
   },
 
   footer: {
+    backgroundColor: C.blanco,
     paddingHorizontal: 24,
-    paddingTop: 13,
-    paddingBottom: 15,
-    backgroundColor: C.fondo,
+    paddingTop: 14,
+    paddingBottom: 18,
     borderTopWidth: 1,
     borderTopColor: C.borde,
   },
 
   nextButton: {
-    height: 53,
-    borderRadius: 14,
+    height: 55,
+    borderRadius: 16,
     backgroundColor: C.principal,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 9,
   },
 
   nextText: {
-    color: C.blanco,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
+    color: C.blanco,
   },
 
   footerNote: {
     textAlign: 'center',
     fontSize: 11,
     color: C.secundario,
-    marginTop: 10,
+    marginTop: 9,
   },
+
+  // Estilos idénticos a components/inicio/BarraNavegacion.tsx.
+  navContainer: {
+    backgroundColor: '#F6F7F3',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  nav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.verdeClaro,
+    borderRadius: 40,
+    padding: 6,
+    minHeight: 65,
+    elevation: 5,
+    shadowColor: C.texto,
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+  },
+  navItem: {
+    flex: 1,
+    height: 53,
+    borderRadius: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  navItemActive: {
+    flex: 2,
+    backgroundColor: C.principal,
+  },
+  navActiveText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: C.blanco,
+  },
+
+
+  tutorialOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(36,55,70,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+
+  tutorialCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: C.fondo,
+    borderRadius: 26,
+    paddingHorizontal: 24,
+    paddingTop: 30,
+    paddingBottom: 25,
+    borderWidth: 1,
+    borderColor: C.borde,
+  },
+
+  tutorialClose: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+
+  tutorialTitle: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: C.texto,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+
+  tutorialIllustration: {
+    height: 145,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+
+  tutorialCircle: {
+    width: 135,
+    height: 135,
+    borderRadius: 68,
+    backgroundColor: C.verdeClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  tutorialCheck: {
+    position: 'absolute',
+    right: '25%',
+    bottom: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: C.blanco,
+  },
+
+  tutorialStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    marginBottom: 17,
+  },
+
+  tutorialNumber: {
+    width: 29,
+    height: 29,
+    borderRadius: 15,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  tutorialNumberText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: C.blanco,
+  },
+
+  tutorialStepText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.texto,
+    lineHeight: 20,
+  },
+
+  tutorialButton: {
+    height: 49,
+    borderRadius: 14,
+    backgroundColor: C.principal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+
+  tutorialButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: C.blanco,
+  },
+
 });

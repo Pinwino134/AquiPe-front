@@ -1,4 +1,4 @@
-
+//import HeaderInicio from '@/components/inicio/HeaderInicio';
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { Platform, Pressable, StyleSheet } from 'react-native';

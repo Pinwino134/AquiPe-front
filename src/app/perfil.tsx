@@ -1,7 +1,7 @@
 
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,6 +17,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import TutorialModal from '@/components/inicio/TutorialModal';
+
+import { useI18n } from '@/lib/i18n';
 import {
   SelectorUbicacion,
   type UbicacionElegida,
@@ -39,6 +42,14 @@ const C = {
   blanco: '#FFFFFF',
   borde: '#DFE7E2',
 };
+
+// Misma estructura y orden que la barra inferior de Inicio.
+const tabsPerfil = [
+  { nombre: 'Inicio', key: 'inicio', icono: 'home-outline' },
+  { nombre: 'Publicar', key: 'publicar', icono: 'add-circle-outline' },
+  { nombre: 'Tutorial', key: 'tutorial', icono: 'book-outline' },
+  { nombre: 'Perfil', key: 'perfil', icono: 'person-outline' },
+] as const;
 
 type Seccion =
   | 'publicaciones'
@@ -110,8 +121,46 @@ const aRecomendaciones = (lista: Publicacion[]): Recomendacion[] => {
     }));
 };
 
+type ItemRecurso = {
+  id: number;
+  remotoId?: string;
+  nombre: string;
+  descripcion: string;
+  cantidad: string;
+  disponible: boolean;
+  icono: string;
+};
+
+const recursosIniciales: ItemRecurso[] = [
+  {
+    id: 1,
+    nombre: 'Escalera doméstica',
+    descripcion: 'Escalera de aluminio disponible para préstamo.',
+    cantidad: '1 unidad',
+    disponible: true,
+    icono: '🪜',
+  },
+  {
+    id: 2,
+    nombre: 'Herramientas básicas',
+    descripcion: 'Martillo, destornilladores y alicates.',
+    cantidad: '1 kit',
+    disponible: true,
+    icono: '🧰',
+  },
+  {
+    id: 3,
+    nombre: 'Libros escolares',
+    descripcion: 'Material de consulta para estudiantes.',
+    cantidad: '5 libros',
+    disponible: false,
+    icono: '📚',
+  },
+];
+
 export default function Perfil() {
   const usuario = useUsuario();
+  const { t } = useI18n();
 
   const [seccion, setSeccion] =
     useState<Seccion>(null);
@@ -138,7 +187,7 @@ export default function Perfil() {
     useState<Recomendacion[]>([]);
 
   const [recursos, setRecursos] =
-    useState<Recurso[]>([]);
+    useState(recursosIniciales);
 
   const [publicaciones, setPublicaciones] =
     useState<ItemPublicacion[]>([]);
@@ -148,44 +197,40 @@ export default function Perfil() {
       let activo = true;
 
       (async () => {
-        // Cargar recursos desde PostgreSQL
-        try {
-          const misRecursos = await Api.misRecursos();
-
-          if (activo) {
-            setRecursos(misRecursos);
-          }
-        } catch (e) {
-          if (activo) {
-            mostrarError(e, 'No se pudieron cargar tus recursos');
-          }
-        }
-
-        // Cargar mis publicaciones
         try {
           const mias = await Api.misPublicaciones();
-
-          if (activo) {
-            setPublicaciones(mias.map(aItem));
-          }
+          if (activo) setPublicaciones(mias.map(aItem));
         } catch (e) {
-          if (activo) {
-            mostrarError(e, 'No se pudieron cargar tus publicaciones');
-          }
+          if (activo) mostrarError(e, 'No se pudieron cargar tus publicaciones');
         }
 
-        // Cargar recomendaciones
         try {
           const servicios = await Api.publicaciones({
             tipo: 'SERVICIO',
             direccion: 'OFRECE',
           });
+          if (activo) setRecomendaciones(aRecomendaciones(servicios));
+        } catch {
+          /* las recomendaciones son opcionales */
+        }
 
-          if (activo) {
-            setRecomendaciones(aRecomendaciones(servicios));
+        try {
+          const remotos = await Api.misRecursos();
+          if (activo && remotos.length > 0) {
+            setRecursos(
+              remotos.map((r, idx) => ({
+                id: idx + 1000,
+                remotoId: r.id,
+                nombre: r.nombre,
+                descripcion: r.descripcion ?? '',
+                cantidad: `${r.cantidad} ${r.unidad ?? 'unidad'}`,
+                disponible: r.disponible,
+                icono: '📦',
+              }))
+            );
           }
         } catch {
-          /* Las recomendaciones son opcionales */
+          /* respaldo local */
         }
       })();
 
@@ -233,8 +278,6 @@ export default function Perfil() {
   const [recursoCantidad, setRecursoCantidad] =
     useState('');
 
-  const guardandoRecursoRef = useRef(false);
-  const [guardandoRecurso, setGuardandoRecurso] = useState(false);
   const abrirEditarPerfil = () => {
     setNombreTemporal(nombre);
     setTelefonoTemporal(telefono);
@@ -284,46 +327,45 @@ export default function Perfil() {
     }
   };
 
+  const agregarRecurso = async () => {
+    if (
+      !recursoNombre.trim() ||
+      !recursoDescripcion.trim() ||
+      !recursoCantidad.trim()
+    ) {
+      Alert.alert(
+        'Campos incompletos',
+        'Completa los datos del recurso.'
+      );
+      return;
+    }
 
+    let remotoId: string | undefined;
+    try {
+      const numCant = parseInt(recursoCantidad.match(/\d+/)?.[0] ?? '1', 10) || 1;
+      const creado = await Api.crearRecurso({
+        nombre: recursoNombre.trim(),
+        descripcion: recursoDescripcion.trim(),
+        cantidad: numCant,
+        unidad: recursoCantidad.trim().slice(0, 30),
+      });
+      remotoId = creado.id;
+    } catch {
+      /* guardado local en modo offline */
+    }
 
-const agregarRecurso = async () => {
-  if (guardandoRecursoRef.current) return;
-
-  if (
-    !recursoNombre.trim() ||
-    !recursoDescripcion.trim() ||
-    !recursoCantidad.trim()
-  ) {
-    Alert.alert(
-      'Campos incompletos',
-      'Completa los datos del recurso.'
-    );
-    return;
-  }
-
-  const partes = recursoCantidad.trim().match(/^(\d+)\s*(.*)$/);
-
-  if (!partes || Number(partes[1]) <= 0) {
-    Alert.alert(
-      'Cantidad inválida',
-      'Escribe una cantidad válida. Ejemplo: 2 unidades.'
-    );
-    return;
-  }
-
-  guardandoRecursoRef.current = true;
-  setGuardandoRecurso(true);
-
-  try {
-    const nuevoRecurso = await Api.crearRecurso({
-      nombre: recursoNombre.trim(),
-      descripcion: recursoDescripcion.trim(),
-      cantidad: Number(partes[1]),
-      unidad: partes[2].trim() || 'unidad',
-      disponible: true,
-    });
-
-    setRecursos((prev) => [nuevoRecurso, ...prev]);
+    setRecursos((prev) => [
+      {
+        id: Date.now(),
+        remotoId,
+        nombre: recursoNombre.trim(),
+        descripcion: recursoDescripcion.trim(),
+        cantidad: recursoCantidad.trim(),
+        disponible: true,
+        icono: '📦',
+      },
+      ...prev,
+    ]);
 
     setRecursoNombre('');
     setRecursoDescripcion('');
@@ -331,79 +373,25 @@ const agregarRecurso = async () => {
     setNuevoRecursoVisible(false);
 
     Alert.alert(
-      'Recurso agregado',
-      'Tu recurso se guardó correctamente.'
+      'Recurso guardado',
+      remotoId
+        ? 'Tu recurso se guardó en tu cuenta y ya está disponible para la comunidad.'
+        : 'Recurso guardado localmente en Modo Sin Conexión.'
     );
-  } catch (e) {
-    mostrarError(e, 'No se pudo guardar el recurso');
-  } finally {
-    guardandoRecursoRef.current = false;
-    setGuardandoRecurso(false);
-  }
-};
+  };
 
-
-
-
-
-const cambiarDisponibilidad = async (id: string) => {
-  const recurso = recursos.find((r) => r.id === id);
-
-  if (!recurso) return;
-
-  const nuevoEstado = !recurso.disponible;
-
-  try {
-    const actualizado = await Api.actualizarRecurso(id, {
-      disponible: nuevoEstado,
-    });
-
+  const cambiarDisponibilidad = (id: number) => {
     setRecursos((prev) =>
-      prev.map((r) =>
-        r.id === id ? actualizado : r
-      )
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const nuevoEstado = !r.disponible;
+        if (r.remotoId) {
+          Api.actualizarRecurso(r.remotoId, { disponible: nuevoEstado }).catch(() => {});
+        }
+        return { ...r, disponible: nuevoEstado };
+      })
     );
-  } catch (e) {
-    mostrarError(e, 'No se pudo actualizar el recurso');
-  }
-};
-
-const eliminarRecurso = (id: string) => {
-  Alert.alert(
-    'Eliminar recurso',
-    '¿Estás seguro de que deseas eliminar este recurso?',
-    [
-      {
-        text: 'Cancelar',
-        style: 'cancel',
-      },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await Api.eliminarRecurso(id);
-
-            setRecursos((prev) =>
-              prev.filter((recurso) => recurso.id !== id)
-            );
-
-            Alert.alert(
-              'Éxito',
-              'El recurso se eliminó correctamente.'
-            );
-          } catch (error) {
-            Alert.alert(
-              'Error',
-              'No se pudo eliminar el recurso.'
-            );
-          }
-        },
-      },
-    ]
-  );
-};
-
+  };
 
   const eliminarPublicacion = (id: string) => {
     Alert.alert(
@@ -629,7 +617,7 @@ const eliminarRecurso = (id: string) => {
           <View style={s.tarjetaFila}>
             <View style={s.iconoTarjeta}>
               <Text style={s.emoji}>
-                {'📦'}
+                {item.icono}
               </Text>
             </View>
 
@@ -639,7 +627,7 @@ const eliminarRecurso = (id: string) => {
               </Text>
 
               <Text style={s.tarjetaSubtitulo}>
-                {item.cantidad} {item.unidad}
+                {item.cantidad}
               </Text>
             </View>
           </View>
@@ -668,21 +656,6 @@ const eliminarRecurso = (id: string) => {
               }}
               thumbColor={C.blanco}
             />
-            <Pressable
-              onPress={() => eliminarRecurso(item.id)}
-              style={s.eliminarBoton}
-            >
-              <Ionicons
-                name="trash-outline"
-                size={17}
-                color="#DC2626"
-              />
-              <Text style={{ color: '#DC2626', fontWeight: '700' }}>
-                Eliminar
-              </Text>
-            </Pressable>
-
-
           </View>
         </View>
       ))}
@@ -905,7 +878,7 @@ const eliminarRecurso = (id: string) => {
                 </Text>
 
                 <Text style={s.status}>
-                  Vecino activo · Comunidad AquiPe
+                  Vecino activo · Perfil de ejemplo
                 </Text>
 
                 <View style={s.zonaPerfil}>
@@ -1016,77 +989,48 @@ const eliminarRecurso = (id: string) => {
               />
 
               <Text style={s.logoutText}>
-                Volver a iniciar sesión
+                Cerrar sesión
               </Text>
             </Pressable>
           </ScrollView>
 
-          {/* Navegación inferior */}
-          <View style={s.nav}>
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                router.replace('/inicio')
-              }
-            >
-              <Ionicons
-                name="home-outline"
-                size={23}
-                color={C.secundario}
-              />
+          {/* Navegación inferior: mismo diseño que Inicio, con Perfil activo */}
+          <View style={s.navContainer}>
+            <View style={s.nav}>
+              {tabsPerfil.map((tab) => {
+                const activa = tab.nombre === 'Perfil';
+                const etiqueta = t[tab.key];
 
-              <Text style={s.navLabel}>
-                Inicio
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                Alert.alert(
-                  'Publicar',
-                  'Puedes publicar servicios y favores desde las secciones correspondientes.'
-                )
-              }
-            >
-              <Ionicons
-                name="add-circle-outline"
-                size={23}
-                color={C.secundario}
-              />
-
-              <Text style={s.navLabel}>
-                Publicar
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={s.navItem}
-              onPress={() =>
-                setTutorialVisible(true)
-              }
-            >
-              <Ionicons
-                name="book-outline"
-                size={23}
-                color={C.secundario}
-              />
-
-              <Text style={s.navLabel}>
-                Tutorial
-              </Text>
-            </Pressable>
-
-            <View style={s.navItem}>
-              <Ionicons
-                name="person"
-                size={23}
-                color={C.principal}
-              />
-
-              <Text style={s.navLabelActive}>
-                Perfil
-              </Text>
+                return (
+                  <Pressable
+                    key={tab.nombre}
+                    style={[s.navItem, activa && s.navItemActive]}
+                    onPress={() => {
+                      if (tab.nombre === 'Inicio') {
+                        router.replace('/inicio');
+                      } else if (tab.nombre === 'Publicar') {
+                        router.push('/publicar');
+                      } else if (tab.nombre === 'Tutorial') {
+                        setTutorialVisible(true);
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={etiqueta}
+                    accessibilityState={{ selected: activa }}
+                  >
+                    <Ionicons
+                      name={tab.icono}
+                      size={24}
+                      color={activa ? C.blanco : C.secundario}
+                    />
+                    {activa && (
+                      <Text style={s.navActiveText}>
+                        {etiqueta}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
         </>
@@ -1293,15 +1237,11 @@ const eliminarRecurso = (id: string) => {
               />
 
               <Pressable
-                style={[
-                  s.botonPrincipal,
-                  guardandoRecurso && { opacity: 0.5 },
-                ]}
+                style={s.botonPrincipal}
                 onPress={agregarRecurso}
-                disabled={guardandoRecurso}
               >
                 <Text style={s.botonPrincipalTexto}>
-                  {guardandoRecurso ? 'Guardando...' : 'Guardar recurso'}
+                  Guardar recurso
                 </Text>
               </Pressable>
             </View>
@@ -1309,86 +1249,11 @@ const eliminarRecurso = (id: string) => {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Tutorial */}
-      <Modal
+      {/* Tutorial visual compartido con Inicio */}
+      <TutorialModal
         visible={tutorialVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() =>
-          setTutorialVisible(false)
-        }
-      >
-        <View style={s.tutorialOverlay}>
-          <View style={s.tutorialCard}>
-            <Pressable
-              style={s.tutorialClose}
-              onPress={() =>
-                setTutorialVisible(false)
-              }
-            >
-              <Ionicons
-                name="close"
-                size={21}
-                color={C.secundario}
-              />
-            </Pressable>
-
-            <Text style={s.tutorialTitle}>
-              Tu comunidad, tu apoyo
-            </Text>
-
-            <View style={s.tutorialIllustration}>
-              <View style={s.tutorialCircle}>
-                <Ionicons
-                  name="people-outline"
-                  size={65}
-                  color={C.principal}
-                />
-              </View>
-
-              <View style={s.tutorialCheck}>
-                <Ionicons
-                  name="checkmark"
-                  size={22}
-                  color={C.blanco}
-                />
-              </View>
-            </View>
-
-            {[
-              'Busca servicios de tu barrio',
-              'Publica o responde favores',
-              'Activa el modo emergencia cuando lo necesites',
-            ].map((paso, index) => (
-              <View
-                key={index}
-                style={s.tutorialStep}
-              >
-                <View style={s.tutorialNumber}>
-                  <Text style={s.tutorialNumberText}>
-                    {index + 1}
-                  </Text>
-                </View>
-
-                <Text style={s.tutorialStepText}>
-                  {paso}
-                </Text>
-              </View>
-            ))}
-
-            <Pressable
-              style={s.tutorialButton}
-              onPress={() =>
-                setTutorialVisible(false)
-              }
-            >
-              <Text style={s.tutorialButtonText}>
-                Entendido
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setTutorialVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1591,30 +1456,46 @@ const s = StyleSheet.create({
     fontSize: 14,
   },
 
+  // Estilos idénticos a components/inicio/BarraNavegacion.tsx.
+  navContainer: {
+    backgroundColor: '#F6F7F3',
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
   nav: {
     flexDirection: 'row',
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: C.borde,
-    backgroundColor: C.blanco,
+    alignItems: 'center',
+    backgroundColor: C.verdeClaro,
+    borderRadius: 40,
+    padding: 6,
+    minHeight: 65,
+    elevation: 5,
+    shadowColor: C.texto,
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
   },
-
   navItem: {
     flex: 1,
+    height: 53,
+    borderRadius: 30,
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    gap: 7,
   },
-
-  navLabel: {
-    fontSize: 11,
-    color: C.secundario,
+  navItemActive: {
+    flex: 2,
+    backgroundColor: C.principal,
   },
-
-  navLabelActive: {
-    fontSize: 11,
-    color: C.principal,
+  navActiveText: {
+    fontSize: 13,
     fontWeight: '800',
+    color: C.blanco,
   },
 
   descripcionSeccion: {

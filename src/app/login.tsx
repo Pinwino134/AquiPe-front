@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Api } from '@/lib/api';
-import { setUsuario } from '@/lib/session';
+import { Api, ApiError } from '@/lib/api';
+import { activarSesionOfflineEmergencia, setUsuario } from '@/lib/session';
 import { mostrarError } from '@/lib/ui';
 
 const C = {
@@ -45,10 +45,34 @@ export default function Login() {
       setUsuario(usuario);
       router.replace('/inicio');
     } catch (e) {
-      mostrarError(e, 'No se pudo iniciar sesión');
+      if (e instanceof ApiError && e.status === 0) {
+        Alert.alert(
+          'Sin conexión al servidor',
+          'No se detectó conexión con el servidor. ¿Deseas ingresar en Modo Sin Conexión para usar el directorio local y el botón SOS?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Entrar en Modo Offline',
+              onPress: () => {
+                activarSesionOfflineEmergencia(
+                  email.split('@')[0] || 'Vecino AquiPe'
+                );
+                router.replace('/inicio');
+              },
+            },
+          ]
+        );
+      } else {
+        mostrarError(e, 'No se pudo iniciar sesión');
+      }
     } finally {
       setCargando(false);
     }
+  };
+
+  const entrarModoEmergenciaOffline = () => {
+    activarSesionOfflineEmergencia();
+    router.replace('/inicio');
   };
 
   return (
@@ -151,6 +175,16 @@ export default function Login() {
                   Iniciar sesión
                 </Text>
               )}
+            </Pressable>
+
+            <Pressable
+              style={s.offlineButton}
+              onPress={entrarModoEmergenciaOffline}
+              accessibilityRole="button"
+            >
+              <Text style={s.offlineButtonText}>
+                🆘 Entrar en Modo Sin Conexión / Emergencia
+              </Text>
             </Pressable>
 
             <Pressable
@@ -350,6 +384,24 @@ const s = StyleSheet.create({
   buttonText: {
     color: C.blanco,
     fontSize: 16,
+    fontWeight: '800',
+  },
+
+  offlineButton: {
+    marginTop: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  offlineButtonText: {
+    color: '#E65100',
+    fontSize: 13,
     fontWeight: '800',
   },
 
